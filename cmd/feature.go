@@ -2,9 +2,7 @@
 package cmd
 
 import (
-	"fmt"
-	"strings"
-
+	"github.com/nickssmallpdf/git-sf/internal/feature"
 	"github.com/nickssmallpdf/git-sf/internal/gh"
 	"github.com/nickssmallpdf/git-sf/internal/git"
 	"github.com/nickssmallpdf/git-sf/internal/runner"
@@ -22,64 +20,17 @@ var featureStartCmd = &cobra.Command{
 	Short: "Create a new feature branch from main",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := git.New(r, ".")
-		h := gh.New(r)
-
-		if err := git.CheckGitInstalled(); err != nil {
-			return err
+		svc := &feature.Service{
+			Git:    git.New(r, "."),
+			GH:     gh.New(r),
+			UI:     ui.New(),
+			Config: cfg,
 		}
-		if err := g.CheckIsRepo(); err != nil {
-			return err
-		}
-		if err := g.CheckCleanTree(); err != nil {
-			return err
-		}
-
-		branchName := cfg.FeaturePrefix + name
-
-		if err := g.Checkout(cfg.MainBranch); err != nil {
-			return err
-		}
-		u.Success("Switched to " + cfg.MainBranch)
-
-		if err := g.Pull(); err != nil {
-			return err
-		}
-		u.Success("Pulled latest changes")
-
-		if err := g.CreateBranch(branchName); err != nil {
-			return err
-		}
-		u.Success("Created branch " + branchName)
-
 		draftPR, _ := cmd.Flags().GetBool("draft-pr")
-		if draftPR || cfg.DraftPROnStart {
-			if err := gh.CheckGHInstalled(); err != nil {
-				return err
-			}
-			if err := h.CheckAuthenticated(); err != nil {
-				return err
-			}
-			if err := g.Push(branchName); err != nil {
-				return err
-			}
-			title, _ := cmd.Flags().GetString("title")
-			if title == "" {
-				title = gh.HumanizeBranchName(branchName, cfg.FeaturePrefix)
-			}
-			pr, err := h.CreatePR(cfg.MainBranch, title, "", true)
-			if err != nil {
-				return err
-			}
-			u.Success("Created draft PR: " + pr.URL)
-		}
-
-		u.Result("Ready to work. When done: git sf feature publish")
-		return nil
+		title, _ := cmd.Flags().GetString("title")
+		return svc.Start(args[0], feature.StartOpts{DraftPR: draftPR, Title: title})
 	},
 }
 
@@ -87,57 +38,17 @@ var featurePublishCmd = &cobra.Command{
 	Use:   "publish",
 	Short: "Push the current feature branch and open a PR",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := git.New(r, ".")
-		h := gh.New(r)
-
-		if err := git.CheckGitInstalled(); err != nil {
-			return err
+		svc := &feature.Service{
+			Git:    git.New(r, "."),
+			GH:     gh.New(r),
+			UI:     ui.New(),
+			Config: cfg,
 		}
-		if err := gh.CheckGHInstalled(); err != nil {
-			return err
-		}
-		if err := g.CheckIsRepo(); err != nil {
-			return err
-		}
-		if err := h.CheckAuthenticated(); err != nil {
-			return err
-		}
-
-		clean, err := g.IsClean()
-		if err != nil {
-			return err
-		}
-		if !clean {
-			u.Warning("You have uncommitted changes — consider committing or stashing them first")
-		}
-
-		branch, err := g.CurrentBranch()
-		if err != nil {
-			return err
-		}
-
-		if err := g.Push(branch); err != nil {
-			return err
-		}
-		u.Success("Pushed branch " + branch)
-
 		title, _ := cmd.Flags().GetString("title")
-		if title == "" {
-			title = gh.HumanizeBranchName(branch, cfg.FeaturePrefix)
-		}
 		body, _ := cmd.Flags().GetString("body")
-
-		pr, err := h.CreatePR(cfg.MainBranch, title, body, false)
-		if err != nil {
-			return err
-		}
-		u.Success("Created PR: " + pr.URL)
-
-		u.Result("PR is open. When ready to merge: git sf feature finish")
-		return nil
+		return svc.Publish(feature.PublishOpts{Title: title, Body: body})
 	},
 }
 
@@ -145,92 +56,16 @@ var featureFinishCmd = &cobra.Command{
 	Use:   "finish",
 	Short: "Merge the current feature branch PR and clean up",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := git.New(r, ".")
-		h := gh.New(r)
-
-		if err := git.CheckGitInstalled(); err != nil {
-			return err
+		svc := &feature.Service{
+			Git:    git.New(r, "."),
+			GH:     gh.New(r),
+			UI:     ui.New(),
+			Config: cfg,
 		}
-		if err := gh.CheckGHInstalled(); err != nil {
-			return err
-		}
-		if err := g.CheckIsRepo(); err != nil {
-			return err
-		}
-		if err := h.CheckAuthenticated(); err != nil {
-			return err
-		}
-		if err := g.CheckCleanTree(); err != nil {
-			return err
-		}
-
-		branch, err := g.CurrentBranch()
-		if err != nil {
-			return err
-		}
-
-		pr, err := h.GetCurrentPR()
-		if err != nil {
-			return err
-		}
-		u.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
-
 		force, _ := cmd.Flags().GetBool("force")
-		if !force {
-			checks, err := h.GetPRChecks()
-			if err != nil {
-				return err
-			}
-			var failing []string
-			for _, c := range checks {
-				if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
-					failing = append(failing, c.Name)
-				}
-			}
-			if len(failing) > 0 {
-				return fmt.Errorf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
-			}
-			u.Success("PR checks passed")
-		}
-
-		ok, err := u.Confirm(fmt.Sprintf("Merge PR #%d — %q?", pr.Number, pr.Title))
-		if err != nil {
-			return err
-		}
-		if !ok {
-			u.Info("Merge cancelled")
-			return nil
-		}
-
-		if err := h.MergePR(cfg.MergeStrategy); err != nil {
-			return err
-		}
-		u.Success("Merged PR #" + fmt.Sprint(pr.Number))
-
-		if err := g.Checkout(cfg.MainBranch); err != nil {
-			return err
-		}
-		if err := g.Pull(); err != nil {
-			return err
-		}
-		u.Success("Switched to " + cfg.MainBranch + " and pulled latest changes")
-
-		if err := g.DeleteLocalBranch(branch); err != nil {
-			return err
-		}
-		u.Success("Deleted local branch " + branch)
-
-		if err := g.DeleteRemoteBranch(branch); err != nil {
-			u.Warning("Remote branch already deleted or could not be removed: " + branch)
-		} else {
-			u.Success("Deleted remote branch " + branch)
-		}
-
-		u.Result("Feature complete!")
-		return nil
+		return svc.Finish(feature.FinishOpts{Force: force})
 	},
 }
 
@@ -238,69 +73,16 @@ var featureDiscardCmd = &cobra.Command{
 	Use:   "discard",
 	Short: "Abandon the current feature branch and close its PR",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := git.New(r, ".")
-		h := gh.New(r)
-
-		if err := git.CheckGitInstalled(); err != nil {
-			return err
+		svc := &feature.Service{
+			Git:    git.New(r, "."),
+			GH:     gh.New(r),
+			UI:     ui.New(),
+			Config: cfg,
 		}
-		if err := g.CheckIsRepo(); err != nil {
-			return err
-		}
-		if err := g.CheckCleanTree(); err != nil {
-			return err
-		}
-
-		branch, err := g.CurrentBranch()
-		if err != nil {
-			return err
-		}
-
-		if !strings.HasPrefix(branch, cfg.FeaturePrefix) {
-			return fmt.Errorf("not on a feature branch (current branch: %s)", branch)
-		}
-
-		ok, err := u.Confirm(fmt.Sprintf("Discard feature branch %q and close its PR?", branch))
-		if err != nil {
-			return err
-		}
-		if !ok {
-			u.Info("Discard cancelled")
-			return nil
-		}
-
 		reason, _ := cmd.Flags().GetString("reason")
-		if ghErr := gh.CheckGHInstalled(); ghErr == nil {
-			if err := h.ClosePR(reason); err != nil {
-				u.Warning("Could not close PR (may not exist): " + err.Error())
-			} else {
-				u.Success("Closed PR")
-			}
-		} else {
-			u.Warning("gh CLI not available — skipping PR close")
-		}
-
-		if err := g.Checkout(cfg.MainBranch); err != nil {
-			return err
-		}
-		u.Success("Switched to " + cfg.MainBranch)
-
-		if err := g.DeleteLocalBranch(branch); err != nil {
-			return err
-		}
-		u.Success("Deleted local branch " + branch)
-
-		if err := g.DeleteRemoteBranch(branch); err != nil {
-			u.Warning("Remote branch already deleted or could not be removed: " + branch)
-		} else {
-			u.Success("Deleted remote branch " + branch)
-		}
-
-		u.Result("Feature discarded.")
-		return nil
+		return svc.Discard(reason)
 	},
 }
 
