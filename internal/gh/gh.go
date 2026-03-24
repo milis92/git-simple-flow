@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	runner "github.com/nickssmallpdf/git-sf/internal/exec"
+	"github.com/nickssmallpdf/git-sf/internal/runner"
 )
 
 type GH struct {

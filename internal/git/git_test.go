@@ -4,13 +4,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nickssmallpdf/git-sf/internal/exec"
+	"github.com/nickssmallpdf/git-sf/internal/runner"
 )
 
 func setupTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	r := exec.NewRunner(false, false)
+	r := runner.NewRunner(false, false)
 	cmds := [][]string{
 		{"git", "-C", dir, "init"},
 		{"git", "-C", dir, "config", "user.email", "test@test.com"},
@@ -31,7 +31,7 @@ func setupTestRepo(t *testing.T) string {
 
 func TestCurrentBranch(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := New(exec.NewRunner(false, false), dir)
+	g := New(runner.NewRunner(false, false), dir)
 	branch, err := g.CurrentBranch()
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestCurrentBranch(t *testing.T) {
 
 func TestCreateAndCheckoutBranch(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := New(exec.NewRunner(false, false), dir)
+	g := New(runner.NewRunner(false, false), dir)
 	err := g.CreateBranch("feature/test")
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestCreateAndCheckoutBranch(t *testing.T) {
 
 func TestIsClean(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := New(exec.NewRunner(false, false), dir)
+	g := New(runner.NewRunner(false, false), dir)
 	clean, err := g.IsClean()
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestIsClean(t *testing.T) {
 
 func TestLatestTag(t *testing.T) {
 	dir := setupTestRepo(t)
-	r := exec.NewRunner(false, false)
+	r := runner.NewRunner(false, false)
 	g := New(r, dir)
 	_, err := g.LatestTag("v")
 	if err == nil {

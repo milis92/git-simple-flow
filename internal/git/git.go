@@ -5,17 +5,17 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nickssmallpdf/git-sf/internal/exec"
+	"github.com/nickssmallpdf/git-sf/internal/runner"
 	"github.com/nickssmallpdf/git-sf/internal/version"
 )
 
 type Git struct {
-	runner *exec.Runner
+	runner *runner.Runner
 	dir    string
 }
 
-func New(runner *exec.Runner, dir string) *Git {
-	return &Git{runner: runner, dir: dir}
+func New(r *runner.Runner, dir string) *Git {
+	return &Git{runner: r, dir: dir}
 }
 
 func (g *Git) run(args ...string) (string, error) {

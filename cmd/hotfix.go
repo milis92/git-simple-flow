@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	runner "github.com/nickssmallpdf/git-sf/internal/exec"
 	"github.com/nickssmallpdf/git-sf/internal/gh"
-	gitpkg "github.com/nickssmallpdf/git-sf/internal/git"
+	"github.com/nickssmallpdf/git-sf/internal/git"
+	"github.com/nickssmallpdf/git-sf/internal/runner"
 	"github.com/nickssmallpdf/git-sf/internal/ui"
 	"github.com/nickssmallpdf/git-sf/internal/version"
 	"github.com/spf13/cobra"
@@ -27,10 +27,10 @@ var hotfixStartCmd = &cobra.Command{
 		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := gitpkg.New(r, ".")
+		g := git.New(r, ".")
 		h := gh.New(r)
 
-		if err := gitpkg.CheckGitInstalled(); err != nil {
+		if err := git.CheckGitInstalled(); err != nil {
 			return err
 		}
 		if err := g.CheckIsRepo(); err != nil {
@@ -90,10 +90,10 @@ var hotfixPublishCmd = &cobra.Command{
 		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := gitpkg.New(r, ".")
+		g := git.New(r, ".")
 		h := gh.New(r)
 
-		if err := gitpkg.CheckGitInstalled(); err != nil {
+		if err := git.CheckGitInstalled(); err != nil {
 			return err
 		}
 		if err := gh.CheckGHInstalled(); err != nil {
@@ -142,10 +142,10 @@ var hotfixFinishCmd = &cobra.Command{
 		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := gitpkg.New(r, ".")
+		g := git.New(r, ".")
 		h := gh.New(r)
 
-		if err := gitpkg.CheckGitInstalled(); err != nil {
+		if err := git.CheckGitInstalled(); err != nil {
 			return err
 		}
 		if err := gh.CheckGHInstalled(); err != nil {
@@ -263,10 +263,10 @@ var hotfixDiscardCmd = &cobra.Command{
 		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
-		g := gitpkg.New(r, ".")
+		g := git.New(r, ".")
 		h := gh.New(r)
 
-		if err := gitpkg.CheckGitInstalled(); err != nil {
+		if err := git.CheckGitInstalled(); err != nil {
 			return err
 		}
 		if err := g.CheckCleanTree(); err != nil {

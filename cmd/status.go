@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	runner "github.com/nickssmallpdf/git-sf/internal/exec"
 	"github.com/nickssmallpdf/git-sf/internal/gh"
-	gitpkg "github.com/nickssmallpdf/git-sf/internal/git"
+	"github.com/nickssmallpdf/git-sf/internal/git"
+	"github.com/nickssmallpdf/git-sf/internal/runner"
 	"github.com/nickssmallpdf/git-sf/internal/ui"
 	"github.com/nickssmallpdf/git-sf/internal/version"
 	"github.com/spf13/cobra"
@@ -20,10 +20,10 @@ var statusCmd = &cobra.Command{
 		u := ui.New()
 		cfg := loadConfig()
 		r := runner.NewRunner(false, verbose) // status is read-only, no dry-run needed
-		g := gitpkg.New(r, ".")
+		g := git.New(r, ".")
 		h := gh.New(r)
 
-		if err := gitpkg.CheckGitInstalled(); err != nil {
+		if err := git.CheckGitInstalled(); err != nil {
 			return err
 		}
 
