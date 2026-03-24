@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 280" width="940" height="280">
+  <style>
+    .label { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; }
+    .tag { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 10px; font-weight: 600; }
+  </style>
+
+  <defs>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow-sm" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="940" height="280" rx="12" fill="#0d1117"/>
+  <rect width="938" height="278" x="1" y="1" rx="11" fill="none" stroke="#21262d" stroke-width="1"/>
+
+  <!-- Main branch line -->
+  <line x1="40" y1="140" x2="910" y2="140" stroke="#484f58" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Feature 1 branch (green) — branch at y=75 -->
+  <path d="M 130 140 C 165 140, 165 75, 200 75 L 300 75 C 335 75, 335 140, 370 140"
+        stroke="#3fb950" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+
+  <!-- Hotfix branch (red) — branches from v1.0.0, merges at v1.0.1, at y=205 -->
+  <path d="M 430 140 C 465 140, 465 205, 500 205 L 600 205 C 635 205, 635 140, 670 140"
+        stroke="#f97583" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+
+  <!-- Feature 2 branch (green) — starts during hotfix, at y=75 -->
+  <path d="M 530 140 C 565 140, 565 75, 600 75 L 700 75 C 735 75, 735 140, 770 140"
+        stroke="#3fb950" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+
+  <!-- ===== Beads ===== -->
+
+  <!-- Main branch beads -->
+  <circle cx="60"  cy="140" r="4" fill="#6e7681"/>
+  <circle cx="130" cy="140" r="5" fill="#6e7681"/>
+  <circle cx="370" cy="140" r="6" fill="#3fb950" filter="url(#glow)"/>
+  <circle cx="430" cy="140" r="7" fill="#d2a8ff" filter="url(#glow)"/>
+  <circle cx="530" cy="140" r="5" fill="#6e7681"/>
+  <circle cx="670" cy="140" r="7" fill="#d2a8ff" filter="url(#glow)"/>
+  <circle cx="770" cy="140" r="6" fill="#3fb950" filter="url(#glow)"/>
+  <circle cx="840" cy="140" r="7" fill="#d2a8ff" filter="url(#glow)"/>
+  <circle cx="895" cy="140" r="3" fill="#484f58"/>
+
+  <!-- Feature 1 beads (green) -->
+  <circle cx="230" cy="75" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+  <circle cx="275" cy="75" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+
+  <!-- Hotfix beads (red) -->
+  <circle cx="530" cy="205" r="4" fill="#f97583" filter="url(#glow-sm)" opacity="0.9"/>
+  <circle cx="580" cy="205" r="4" fill="#f97583" filter="url(#glow-sm)" opacity="0.9"/>
+
+  <!-- Feature 2 beads (green) -->
+  <circle cx="630" cy="75" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+  <circle cx="680" cy="75" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+
+  <!-- ===== Labels ===== -->
+
+  <!-- Main label -->
+  <text x="40" y="162" class="label" fill="#6e7681">main</text>
+
+  <!-- Feature labels -->
+  <text x="250" y="62" text-anchor="middle" class="label" fill="#3fb950">feature</text>
+  <text x="655" y="62" text-anchor="middle" class="label" fill="#3fb950">feature</text>
+
+  <!-- Hotfix label -->
+  <text x="550" y="235" text-anchor="middle" class="label" fill="#f97583">hotfix</text>
+
+  <!-- Release tag v1.0.0 -->
+  <line x1="430" y1="122" x2="430" y2="131" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
+  <rect x="405" y="102" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
+  <text x="430" y="116" text-anchor="middle" class="tag" fill="#d2a8ff">v1.0.0</text>
+
+  <!-- Release tag v1.0.1 (patch at hotfix merge point) -->
+  <line x1="670" y1="122" x2="670" y2="131" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
+  <rect x="645" y="102" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
+  <text x="670" y="116" text-anchor="middle" class="tag" fill="#d2a8ff">v1.0.1</text>
+
+  <!-- Release tag v1.1.0 (minor after feature 2) -->
+  <line x1="840" y1="122" x2="840" y2="131" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
+  <rect x="815" y="102" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
+  <text x="840" y="116" text-anchor="middle" class="tag" fill="#d2a8ff">v1.1.0</text>
+</svg>

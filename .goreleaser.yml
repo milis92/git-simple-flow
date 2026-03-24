@@ -1,0 +1,76 @@
+version: 2
+
+project_name: git-sf
+
+builds:
+  - main: .
+    binary: git-sf
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+nfpms:
+  - package_name: git-sf
+    vendor: milis92
+    homepage: https://github.com/milis92/git-simple-flow
+    maintainer: milis92
+    description: Simple Flow — trunk-based Git workflow CLI
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
+snapcrafts:
+  - name: git-sf
+    summary: Simple Flow — trunk-based Git workflow CLI
+    description: |
+      A lightweight, opinionated Git workflow CLI for trunk-based development.
+      Manage feature branches, hotfixes, and semver releases with simple commands.
+    grade: stable
+    confinement: classic
+    license: MIT
+    apps:
+      git-sf:
+        command: git-sf
+
+brews:
+  - repository:
+      owner: milis92
+      name: homebrew-tap
+    name: git-sf
+    homepage: https://github.com/milis92/git-simple-flow
+    description: Simple Flow — trunk-based Git workflow CLI
+    license: MIT
+
+scoops:
+  - repository:
+      owner: milis92
+      name: scoop-bucket
+    name: git-sf
+    homepage: https://github.com/milis92/git-simple-flow
+    description: Simple Flow — trunk-based Git workflow CLI
+    license: MIT
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'

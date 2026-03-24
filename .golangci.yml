@@ -1,0 +1,25 @@
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - gocritic
+    - gofmt
+    - govet
+    - ineffassign
+    - staticcheck
+    - stylecheck
+    - unused
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - hugeParam
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5
