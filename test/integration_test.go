@@ -1,3 +1,5 @@
+//go:build integration
+
 // test/integration_test.go
 package test
 
@@ -234,6 +236,75 @@ func TestHotfixStartNoTags(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "no tags found") {
 		t.Errorf("expected 'no tags found' error, got: %s", out)
+	}
+}
+
+func TestConfigInit(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepo(t)
+
+	cmd := exec.Command(binary, "init")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %s\n%s", err, out)
+	}
+	if !strings.Contains(string(out), ".sfconfig.yml") {
+		t.Errorf("expected config file path in output, got: %s", out)
+	}
+
+	// Verify file was created
+	configPath := filepath.Join(dir, ".sfconfig.yml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Error("expected .sfconfig.yml to be created")
+	}
+}
+
+func TestConfigShow(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepo(t)
+
+	cmd := exec.Command(binary, "config")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %s\n%s", err, out)
+	}
+
+	output := string(out)
+	if !strings.Contains(output, "main_branch") {
+		t.Errorf("expected main_branch in config output, got: %s", output)
+	}
+	if !strings.Contains(output, "squash") {
+		t.Errorf("expected default merge_strategy 'squash' in output, got: %s", output)
+	}
+}
+
+func TestCompletionBash(t *testing.T) {
+	binary := buildBinary(t)
+
+	cmd := exec.Command(binary, "completion", "bash")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %s\n%s", err, out)
+	}
+	if len(out) == 0 {
+		t.Error("expected non-empty bash completion script")
+	}
+}
+
+func TestStatusOnMain(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepo(t)
+
+	cmd := exec.Command(binary, "status")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("command failed: %s\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "main") {
+		t.Errorf("expected 'main' in status output, got: %s", out)
 	}
 }
 
