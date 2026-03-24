@@ -31,11 +31,12 @@ func (s *Service) Show() error {
 
 	// Determine branch type
 	branchType := "other"
-	if branch == s.Config.MainBranch {
+	switch {
+	case branch == s.Config.MainBranch:
 		branchType = s.Config.MainBranch
-	} else if strings.HasPrefix(branch, s.Config.FeaturePrefix) {
+	case strings.HasPrefix(branch, s.Config.FeaturePrefix):
 		branchType = "feature"
-	} else if strings.HasPrefix(branch, s.Config.HotfixPrefix) {
+	case strings.HasPrefix(branch, s.Config.HotfixPrefix):
 		branchType = "hotfix"
 	}
 

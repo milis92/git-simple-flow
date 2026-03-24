@@ -155,12 +155,13 @@ func (s *Service) Finish(opts FinishOpts) error {
 		if err == nil {
 			failing := false
 			for _, c := range checks {
-				if c.Conclusion == "failure" {
+				switch {
+				case c.Conclusion == "failure":
 					s.UI.Error(c.Name + " — failed")
 					failing = true
-				} else if c.Status != "completed" {
+				case c.Status != "completed":
 					s.UI.Warning(c.Name + " — " + c.Status)
-				} else {
+				default:
 					s.UI.Success(c.Name + " — passed")
 				}
 			}

@@ -76,7 +76,7 @@ func printConfigField(u *ui.UI, name, value, defaultVal string,
 	if repo != nil && getter(repo) != "" {
 		source = "(repo: .sfconfig.yml)"
 	} else if global != nil && getter(global) != "" {
-		source = fmt.Sprintf("(global: ~/.config/git-sf/config.yml)")
+		source = "(global: ~/.config/git-sf/config.yml)"
 	}
 	fmt.Fprintf(u.Out, "  %-25s %-15s %s\n", name, value, source)
 }

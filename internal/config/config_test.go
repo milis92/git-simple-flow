@@ -140,7 +140,9 @@ func TestWriteDefaults(t *testing.T) {
 func TestWriteDefaultsExistingFileErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".sfconfig.yml")
-	os.WriteFile(path, []byte("existing"), 0644)
+	if err := os.WriteFile(path, []byte("existing"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	err := WriteDefaults(path)
 	if err == nil {
 		t.Error("expected error when file already exists")

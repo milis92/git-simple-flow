@@ -21,11 +21,20 @@ func setupTestRepo(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	f, _ := os.Create(dir + "/README.md")
-	f.WriteString("init")
+	f, err := os.Create(dir + "/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("init"); err != nil {
+		t.Fatal(err)
+	}
 	f.Close()
-	r.Run("git", "-C", dir, "add", ".")
-	r.Run("git", "-C", dir, "commit", "-m", "init")
+	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "commit", "-m", "init"); err != nil {
+		t.Fatal(err)
+	}
 	return dir
 }
 
@@ -64,7 +73,9 @@ func TestIsClean(t *testing.T) {
 	if !clean {
 		t.Error("expected clean working tree")
 	}
-	os.WriteFile(dir+"/dirty.txt", []byte("dirty"), 0644)
+	if err := os.WriteFile(dir+"/dirty.txt", []byte("dirty"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	clean, _ = g.IsClean()
 	if clean {
 		t.Error("expected dirty working tree")
@@ -79,11 +90,21 @@ func TestLatestTag(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when no tags exist")
 	}
-	r.Run("git", "-C", dir, "tag", "v1.0.0")
-	os.WriteFile(dir+"/f2.txt", []byte("x"), 0644)
-	r.Run("git", "-C", dir, "add", ".")
-	r.Run("git", "-C", dir, "commit", "-m", "second")
-	r.Run("git", "-C", dir, "tag", "v1.1.0")
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/f2.txt", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "commit", "-m", "second"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.1.0"); err != nil {
+		t.Fatal(err)
+	}
 	tag, err := g.LatestTag("v")
 	if err != nil {
 		t.Fatal(err)
