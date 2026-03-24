@@ -1,0 +1,76 @@
+version: 2
+
+project_name: git-sf
+
+builds:
+  - main: .
+    binary: git-sf
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+nfpms:
+  - package_name: git-sf
+    vendor: nickssmallpdf
+    homepage: https://github.com/nickssmallpdf/git-sf
+    maintainer: nickssmallpdf
+    description: Simple Flow — trunk-based Git workflow CLI
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
+snapcrafts:
+  - name: git-sf
+    summary: Simple Flow — trunk-based Git workflow CLI
+    description: |
+      A lightweight, opinionated Git workflow CLI for trunk-based development.
+      Manage feature branches, hotfixes, and semver releases with simple commands.
+    grade: stable
+    confinement: classic
+    license: MIT
+    apps:
+      git-sf:
+        command: git-sf
+
+brews:
+  - repository:
+      owner: nickssmallpdf
+      name: homebrew-tap
+    name: git-sf
+    homepage: https://github.com/nickssmallpdf/git-sf
+    description: Simple Flow — trunk-based Git workflow CLI
+    license: MIT
+
+scoops:
+  - repository:
+      owner: nickssmallpdf
+      name: scoop-bucket
+    name: git-sf
+    homepage: https://github.com/nickssmallpdf/git-sf
+    description: Simple Flow — trunk-based Git workflow CLI
+    license: MIT
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
