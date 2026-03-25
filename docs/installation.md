@@ -17,6 +17,38 @@ brew install milis92/tap/git-sf
 go install github.com/milis92/git-simple-flow@latest
 ```
 
+## Latest (unstable)
+
+Download the most recent build from `main`. These are not stable releases — use for testing or previewing upcoming features.
+
+**Linux (amd64):**
+```sh
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_linux_amd64.tar.gz | tar -xz
+sudo mv git-sf /usr/local/bin/
+```
+
+**Linux (arm64):**
+```sh
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_linux_arm64.tar.gz | tar -xz
+sudo mv git-sf /usr/local/bin/
+```
+
+**macOS (Apple Silicon):**
+```sh
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_darwin_arm64.tar.gz | tar -xz
+sudo mv git-sf /usr/local/bin/
+```
+
+**macOS (Intel):**
+```sh
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_darwin_amd64.tar.gz | tar -xz
+sudo mv git-sf /usr/local/bin/
+```
+
+**Windows (amd64):**
+
+Download [git-sf_windows_amd64.zip](https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_windows_amd64.zip), extract, and add `git-sf.exe` to your `PATH`.
+
 ## Package Managers
 
 ### Homebrew (macOS / Linux)
