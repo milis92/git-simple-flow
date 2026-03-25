@@ -1,4 +1,3 @@
-// cmd/release.go
 package cmd
 
 import (
@@ -9,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// releaseCmd tags and pushes a new semver release from main.
 var releaseCmd = &cobra.Command{
 	Use:   "release [major|minor|patch]",
 	Short: "Tag and push a release from main",

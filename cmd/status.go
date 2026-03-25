@@ -1,4 +1,3 @@
-// cmd/status.go
 package cmd
 
 import (
@@ -10,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// statusCmd displays current branch, PR, and release information.
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show current branch, PR, and release info",

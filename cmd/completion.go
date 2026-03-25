@@ -1,4 +1,3 @@
-// cmd/completion.go
 package cmd
 
 import (
@@ -7,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// completionCmd generates shell completion scripts for bash, zsh, fish,
+// or powershell.
 var completionCmd = &cobra.Command{
 	Use:       "completion [bash|zsh|fish|powershell]",
 	Short:     "Generate shell completion scripts",

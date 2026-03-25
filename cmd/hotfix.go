@@ -1,4 +1,3 @@
-// cmd/hotfix.go
 package cmd
 
 import (
@@ -10,11 +9,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// hotfixCmd is the parent command for hotfix branch operations.
 var hotfixCmd = &cobra.Command{
 	Use:   "hotfix",
 	Short: "Manage hotfix branches",
 }
 
+// hotfixStartCmd creates a new hotfix branch from the latest release tag.
 var hotfixStartCmd = &cobra.Command{
 	Use:   "start <name>",
 	Short: "Create a new hotfix branch from the latest tag",
@@ -34,6 +35,7 @@ var hotfixStartCmd = &cobra.Command{
 	},
 }
 
+// hotfixPublishCmd pushes the current hotfix branch and creates a PR.
 var hotfixPublishCmd = &cobra.Command{
 	Use:   "publish",
 	Short: "Push branch and create a PR to main",
@@ -52,6 +54,7 @@ var hotfixPublishCmd = &cobra.Command{
 	},
 }
 
+// hotfixFinishCmd merges the hotfix PR, cleans up, and optionally tags a release.
 var hotfixFinishCmd = &cobra.Command{
 	Use:   "finish",
 	Short: "Merge PR, switch to main, delete branch, optionally tag release",
@@ -70,6 +73,7 @@ var hotfixFinishCmd = &cobra.Command{
 	},
 }
 
+// hotfixDiscardCmd abandons the current hotfix branch and closes its PR.
 var hotfixDiscardCmd = &cobra.Command{
 	Use:   "discard",
 	Short: "Close PR, delete branch, switch to main",

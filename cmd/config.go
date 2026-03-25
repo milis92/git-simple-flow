@@ -1,4 +1,3 @@
-// cmd/config.go
 package cmd
 
 import (
@@ -11,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// initCmd creates a .sfconfig.yml file with default settings in the repo root.
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create .sfconfig.yml with default settings",
@@ -36,6 +36,7 @@ var initCmd = &cobra.Command{
 	},
 }
 
+// configCmd displays the effective configuration with source attribution.
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Show effective configuration",
@@ -70,6 +71,8 @@ var configCmd = &cobra.Command{
 	},
 }
 
+// printConfigField displays a single config field with its value and source
+// (default, global, or repo), determined by checking each config layer.
 func printConfigField(u *ui.UI, name, value, defaultVal string,
 	global, repo *config.PartialConfig, getter func(*config.PartialConfig) string) {
 	source := "(default)"

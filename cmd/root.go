@@ -1,4 +1,4 @@
-// cmd/root.go
+// Package cmd implements the CLI commands for git-sf.
 package cmd
 
 import (
@@ -22,12 +22,15 @@ var rootCmd = &cobra.Command{
 	Long:  "A lightweight, opinionated Git workflow CLI for trunk-based development.",
 }
 
+// Execute runs the root command. It exits with code 1 on error.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
+// repoRoot returns the top-level directory of the current git repository,
+// or "." if it cannot be determined.
 func repoRoot() string {
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
@@ -36,6 +39,8 @@ func repoRoot() string {
 	return strings.TrimSpace(string(out))
 }
 
+// loadConfig loads the 3-layer config: built-in defaults, then global
+// (~/.config/git-sf/config.yml), then repo (.sfconfig.yml).
 func loadConfig() config.Config {
 	base := config.Defaults()
 	homeDir, _ := os.UserHomeDir()

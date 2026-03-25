@@ -1,4 +1,3 @@
-// cmd/feature.go
 package cmd
 
 import (
@@ -10,11 +9,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// featureCmd is the parent command for feature branch operations.
 var featureCmd = &cobra.Command{
 	Use:   "feature",
 	Short: "Manage feature branches",
 }
 
+// featureStartCmd creates a new feature branch from main.
 var featureStartCmd = &cobra.Command{
 	Use:   "start <name>",
 	Short: "Create a new feature branch from main",
@@ -34,6 +35,7 @@ var featureStartCmd = &cobra.Command{
 	},
 }
 
+// featurePublishCmd pushes the current feature branch and opens a PR.
 var featurePublishCmd = &cobra.Command{
 	Use:   "publish",
 	Short: "Push the current feature branch and open a PR",
@@ -52,6 +54,7 @@ var featurePublishCmd = &cobra.Command{
 	},
 }
 
+// featureFinishCmd merges the current feature PR and cleans up.
 var featureFinishCmd = &cobra.Command{
 	Use:   "finish",
 	Short: "Merge the current feature branch PR and clean up",
@@ -69,6 +72,7 @@ var featureFinishCmd = &cobra.Command{
 	},
 }
 
+// featureDiscardCmd abandons the current feature branch and closes its PR.
 var featureDiscardCmd = &cobra.Command{
 	Use:   "discard",
 	Short: "Abandon the current feature branch and close its PR",
