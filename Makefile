@@ -1,6 +1,6 @@
 BINARY := git-sf
 
-.PHONY: build test test-integration test-all lint fmt coverage clean
+.PHONY: build test test-integration test-all lint fmt coverage changelog clean
 
 build:
 	go build -o $(BINARY) .
@@ -31,6 +31,9 @@ fmt-check:
 coverage:
 	go test ./internal/... -v -coverprofile=coverage.out -covermode=atomic
 	go tool cover -func=coverage.out
+
+changelog:
+	git cliff -o CHANGELOG.md
 
 clean:
 	rm -f $(BINARY) coverage.out

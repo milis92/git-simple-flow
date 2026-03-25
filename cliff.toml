@@ -1,0 +1,80 @@
+[changelog]
+header = """
+# Changelog\n
+All notable changes to this project will be documented in this file.\n
+The format is based on [Keep a Changelog](https://keepachangelog.com/), \
+and this project adheres to [Semantic Versioning](https://semver.org/).\n
+"""
+
+body = """
+{%- macro remote_url() -%}
+  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [Unreleased]
+{% endif -%}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+{%- if commit.scope %}
+- *({{ commit.scope }})* {{ commit.message | upper_first | trim }}\
+  {%- if commit.breaking %} (**BREAKING**){% endif %}
+{%- else %}
+- {{ commit.message | upper_first | trim }}\
+  {%- if commit.breaking %} (**BREAKING**){% endif %}
+{%- endif %}
+{%- endfor %}
+{% endfor %}
+"""
+
+footer = """
+{%- macro remote_url() -%}
+  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+
+{% for release in releases -%}
+    {% if release.version -%}
+        {% if release.previous.version -%}
+            [{{ release.version | trim_start_matches(pat="v") }}]: \
+                {{ self::remote_url() }}/compare/{{ release.previous.version }}...{{ release.version }}
+        {% else -%}
+            [{{ release.version | trim_start_matches(pat="v") }}]: \
+                {{ self::remote_url() }}/commits/{{ release.version }}
+        {% endif -%}
+    {% else -%}
+        {% if release.previous.version -%}
+            [Unreleased]: {{ self::remote_url() }}/compare/{{ release.previous.version }}...HEAD
+        {% endif -%}
+    {% endif -%}
+{% endfor %}
+"""
+
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_preprocessors = [
+    { pattern = '\(#([0-9]+)\)', replace = '([#${1}](https://github.com/milis92/git-simple-flow/pull/${1}))' },
+]
+commit_parsers = [
+    { message = "^feat",     group = "Added" },
+    { message = "^fix",      group = "Fixed" },
+    { message = "^doc",      group = "Documentation" },
+    { message = "^refactor", group = "Changed" },
+    { message = "^ci",       group = "CI" },
+    { message = "^style",    group = "Changed" },
+    { message = "^chore",    skip = true },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+
+[remote.github]
+owner = "milis92"
+repo = "git-simple-flow"
