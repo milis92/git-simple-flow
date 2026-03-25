@@ -17,6 +17,7 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       upload-coverage: true
+    secrets: inherit
   lint:
     uses: ./.github/workflows/lint.yml
   deploy:
