@@ -1,0 +1,4 @@
+{
+  "name": "git-sf-workflow",
+  "description": "Teaches Claude to use git-sf for trunk-based Git workflow instead of raw git/gh commands."
+}
