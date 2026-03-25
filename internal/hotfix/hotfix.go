@@ -1,3 +1,6 @@
+// Package hotfix implements the hotfix branch lifecycle. Unlike features,
+// hotfixes branch from the latest release tag (not main) and can optionally
+// trigger a patch release on finish.
 package hotfix
 
 import (
@@ -11,6 +14,8 @@ import (
 	"github.com/nickssmallpdf/git-sf/internal/version"
 )
 
+// Service orchestrates git, GitHub CLI, UI, and config to execute
+// the hotfix branch workflow.
 type Service struct {
 	Git    *git.Git
 	GH     *gh.GH
@@ -18,21 +23,32 @@ type Service struct {
 	Config config.Config
 }
 
+// StartOpts configures hotfix branch creation.
 type StartOpts struct {
+	// DraftPR, when true, creates a draft PR immediately after branching.
 	DraftPR bool
-	Title   string
-}
-
-type PublishOpts struct {
+	// Title overrides the auto-generated PR title.
 	Title string
-	Body  string
 }
 
+// PublishOpts configures PR creation for an existing hotfix branch.
+type PublishOpts struct {
+	// Title overrides the auto-generated PR title.
+	Title string
+	// Body is the PR description.
+	Body string
+}
+
+// FinishOpts configures hotfix branch completion.
 type FinishOpts struct {
-	Force   bool
+	// Force skips CI check verification before merging.
+	Force bool
+	// Release triggers a patch version tag after merging.
 	Release bool
 }
 
+// Start creates a new hotfix branch from the latest release tag. It checks out
+// the tag, creates the branch, and optionally creates a draft PR.
 func (s *Service) Start(name string, opts StartOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -85,6 +101,8 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	return nil
 }
 
+// Publish pushes the current hotfix branch and creates a PR to main.
+// It warns if the working tree is dirty but does not block.
 func (s *Service) Publish(opts PublishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -126,6 +144,9 @@ func (s *Service) Publish(opts PublishOpts) error {
 	return nil
 }
 
+// Finish merges the current hotfix PR and cleans up. After merging and branch
+// deletion, if Release is set or hotfix_auto_release is configured, it
+// automatically creates and pushes a patch version tag.
 func (s *Service) Finish(opts FinishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -236,6 +257,9 @@ func (s *Service) Finish(opts FinishOpts) error {
 	return nil
 }
 
+// Discard abandons the current hotfix branch. It confirms with the user,
+// closes the PR (posting reason as a comment if provided), switches to main,
+// and deletes the local and remote branches.
 func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
