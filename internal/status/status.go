@@ -1,4 +1,5 @@
-// internal/status/status.go
+// Package status displays current branch information, PR status, CI checks,
+// and release info.
 package status
 
 import (
@@ -12,6 +13,8 @@ import (
 	"github.com/nickssmallpdf/git-sf/internal/version"
 )
 
+// Service orchestrates git, GitHub CLI, UI, and config to display
+// the current repository status.
 type Service struct {
 	Git    *git.Git
 	GH     *gh.GH
@@ -19,6 +22,10 @@ type Service struct {
 	Config config.Config
 }
 
+// Show displays a status summary for the current branch. It includes:
+// branch name and type (feature/hotfix/main), PR info with CI check counts
+// (if on a feature or hotfix branch), ahead/behind commit counts relative
+// to main, the latest release tag, and possible next version numbers.
 func (s *Service) Show() error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
