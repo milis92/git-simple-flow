@@ -33,19 +33,6 @@ nfpms:
       - deb
       - rpm
 
-snapcrafts:
-  - name: git-sf
-    summary: Simple Git Flow — all the structure, none of the ceremony
-    description: |
-      A Git branching model that sits between Git Flow and GitHub Flow. Feature branches with semver versioning built in.
-      Manage feature branches, hotfixes, and semver releases with simple commands.
-    grade: stable
-    confinement: classic
-    license: MIT
-    apps:
-      git-sf:
-        command: git-sf
-
 brews:
   - repository:
       owner: milis92

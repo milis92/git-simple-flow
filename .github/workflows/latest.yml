@@ -35,8 +35,8 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          # Snapshot builds skip system packages (snap/deb/rpm); only tar.gz/zip archives are published
-          args: release --snapshot --skip=publish,snapcraft,nfpm --clean
+          # Snapshot builds skip system packages (deb/rpm); only tar.gz/zip archives are published
+          args: release --snapshot --skip=publish,nfpm --clean
       - name: Delete existing latest release
         run: |
           if gh release view latest > /dev/null 2>&1; then
