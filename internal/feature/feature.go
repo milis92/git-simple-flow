@@ -1,3 +1,6 @@
+// Package feature implements the feature branch lifecycle: start, publish,
+// finish, and discard. A feature branches from main, gets a PR, and merges
+// back to main when done.
 package feature
 
 import (
@@ -10,6 +13,8 @@ import (
 	"github.com/nickssmallpdf/git-sf/internal/ui"
 )
 
+// Service orchestrates git, GitHub CLI, UI, and config to execute
+// the feature branch workflow.
 type Service struct {
 	Git    *git.Git
 	GH     *gh.GH
@@ -17,20 +22,31 @@ type Service struct {
 	Config config.Config
 }
 
+// StartOpts configures feature branch creation.
 type StartOpts struct {
+	// DraftPR, when true, creates a draft PR immediately after branching.
 	DraftPR bool
-	Title   string
-}
-
-type PublishOpts struct {
+	// Title overrides the auto-generated PR title (derived from branch name).
 	Title string
-	Body  string
 }
 
+// PublishOpts configures PR creation for an existing feature branch.
+type PublishOpts struct {
+	// Title overrides the auto-generated PR title.
+	Title string
+	// Body is the PR description.
+	Body string
+}
+
+// FinishOpts configures feature branch completion.
 type FinishOpts struct {
+	// Force skips CI check verification before merging.
 	Force bool
 }
 
+// Start creates a new feature branch from main. It checks out main, pulls
+// the latest changes, and creates the branch. If DraftPR is set (or configured
+// globally), it also pushes the branch and creates a draft PR.
 func (s *Service) Start(name string, opts StartOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -84,6 +100,8 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	return nil
 }
 
+// Publish pushes the current feature branch and creates a ready-for-review PR.
+// It warns if the working tree is dirty but does not block.
 func (s *Service) Publish(opts PublishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -131,6 +149,10 @@ func (s *Service) Publish(opts PublishOpts) error {
 	return nil
 }
 
+// Finish merges the current feature branch's PR and cleans up. It finds the
+// associated PR, verifies CI checks pass (unless Force is set), asks for
+// confirmation, merges using the configured strategy, and deletes the local
+// and remote branches.
 func (s *Service) Finish(opts FinishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -213,6 +235,9 @@ func (s *Service) Finish(opts FinishOpts) error {
 	return nil
 }
 
+// Discard abandons the current feature branch. It confirms with the user,
+// closes the PR if the gh CLI is available (posting reason as a comment if
+// provided), switches to main, and deletes the local and remote branches.
 func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
