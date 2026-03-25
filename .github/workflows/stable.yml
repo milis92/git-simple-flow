@@ -16,6 +16,7 @@ jobs:
     if: ${{ !contains(github.ref_name, '-') }}
     uses: ./.github/workflows/lint.yml
   release:
+    if: ${{ !contains(github.ref_name, '-') }}
     needs: [test, lint]
     runs-on: ubuntu-latest
     steps:

@@ -1,4 +1,4 @@
-name: Latest
+name: Beta
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
       - name: Compute beta version
         id: beta
         run: |
-          # Find latest stable tag (no pre-release suffix)
+          # Find latest stable tag (grep -v '-' excludes pre-release tags like v1.0.0-beta.1)
           LATEST_STABLE=$(git tag -l 'v*.*.*' | grep -v '-' | sort -V | tail -1)
           if [ -z "$LATEST_STABLE" ]; then
             LATEST_STABLE="v0.0.0"
@@ -52,9 +52,9 @@ jobs:
           NEXT_MINOR=$((MINOR + 1))
           BASE="v${MAJOR}.${NEXT_MINOR}.0"
 
-          # Find highest existing beta number for this base version
+          # Find highest existing beta number for this base version (--limit 1000 avoids default 30-item cap)
           MAX_BETA=$(gh release list --limit 1000 --json tagName --jq '.[].tagName' \
-            | { grep "^${BASE}-beta\." || true; } \
+            | { grep -E "^${BASE}-beta\.[0-9]+$" || true; } \
             | sed "s/^${BASE}-beta\.//" \
             | sort -n \
             | tail -1)
@@ -70,11 +70,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create beta release
         run: |
-          gh release create "${{ steps.beta.outputs.beta_tag }}" \
+          gh release create "$BETA_TAG" \
             dist/*.tar.gz dist/*.zip dist/checksums.txt \
-            --title "${{ steps.beta.outputs.beta_tag }}" \
+            --title "$BETA_TAG" \
             --notes "Pre-release build from main." \
             --prerelease \
             --target "${{ github.sha }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BETA_TAG: ${{ steps.beta.outputs.beta_tag }}
