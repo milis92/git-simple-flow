@@ -10,8 +10,10 @@ permissions:
 
 jobs:
   test:
+    if: ${{ !contains(github.ref_name, '-') }}
     uses: ./.github/workflows/test.yml
   lint:
+    if: ${{ !contains(github.ref_name, '-') }}
     uses: ./.github/workflows/lint.yml
   release:
     needs: [test, lint]
