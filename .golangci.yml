@@ -11,19 +11,17 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - hugeParam
+  exclusions:
+    max-issues-per-linter: 50
+    max-same-issues: 5
 
 formatters:
   enable:
     - gofmt
-
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - hugeParam
-
-issues:
-  max-issues-per-linter: 50
-  max-same-issues: 5
