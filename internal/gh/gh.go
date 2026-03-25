@@ -1,3 +1,4 @@
+// Package gh wraps the GitHub CLI (gh) for pull request and CI check operations.
 package gh
 
 import (
@@ -9,14 +10,17 @@ import (
 	"github.com/nickssmallpdf/git-sf/internal/runner"
 )
 
+// GH provides GitHub CLI operations. It delegates command execution to a runner.Runner.
 type GH struct {
 	runner *runner.Runner
 }
 
+// New creates a GH instance with the given runner.
 func New(r *runner.Runner) *GH {
 	return &GH{runner: r}
 }
 
+// CheckGHInstalled verifies that the gh CLI is available in PATH.
 func CheckGHInstalled() error {
 	_, err := exec.LookPath("gh")
 	if err != nil {
@@ -25,6 +29,7 @@ func CheckGHInstalled() error {
 	return nil
 }
 
+// CheckAuthenticated verifies that the gh CLI is logged in.
 func (g *GH) CheckAuthenticated() error {
 	_, err := g.runner.Run("gh", "auth", "status")
 	if err != nil {
@@ -33,14 +38,18 @@ func (g *GH) CheckAuthenticated() error {
 	return nil
 }
 
+// PRInfo holds metadata about a GitHub pull request.
 type PRInfo struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
 	State  string `json:"state"`
 	URL    string `json:"url"`
-	Draft  bool   `json:"isDraft"`
+	// Draft maps to the GitHub API field "isDraft".
+	Draft bool `json:"isDraft"`
 }
 
+// CreatePR creates a pull request from the current branch to base.
+// If draft is true, the PR is created as a draft.
 func (g *GH) CreatePR(base, title, body string, draft bool) (*PRInfo, error) {
 	args := []string{"pr", "create", "--base", base, "--title", title, "--body", body}
 	if draft {
@@ -53,12 +62,16 @@ func (g *GH) CreatePR(base, title, body string, draft bool) (*PRInfo, error) {
 	return &PRInfo{URL: strings.TrimSpace(out)}, nil
 }
 
+// MergePR merges the current branch's PR using the given strategy
+// ("squash", "merge", or "rebase").
 func (g *GH) MergePR(strategy string) error {
 	args := []string{"pr", "merge", "--" + strategy}
 	_, err := g.runner.Run("gh", args...)
 	return err
 }
 
+// ClosePR closes the current branch's PR. If reason is non-empty,
+// it is posted as a comment before closing.
 func (g *GH) ClosePR(reason string) error {
 	args := []string{"pr", "close"}
 	if reason != "" {
@@ -68,6 +81,8 @@ func (g *GH) ClosePR(reason string) error {
 	return err
 }
 
+// GetCurrentPR fetches PR metadata for the current branch.
+// Returns an error if no PR exists for the branch.
 func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	out, err := g.runner.Run("gh", "pr", "view", "--json", "number,title,state,url,isDraft")
 	if err != nil {
@@ -80,12 +95,14 @@ func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	return &pr, nil
 }
 
+// CheckStatus holds the result of a single CI check on a PR.
 type CheckStatus struct {
 	Name       string
-	Status     string
-	Conclusion string
+	Status     string // e.g. "completed", "in_progress"
+	Conclusion string // e.g. "success", "failure"
 }
 
+// GetPRChecks fetches CI check results for the current branch's PR.
 func (g *GH) GetPRChecks() ([]CheckStatus, error) {
 	out, err := g.runner.Run("gh", "pr", "checks", "--json", "name,status,conclusion")
 	if err != nil {
@@ -98,6 +115,9 @@ func (g *GH) GetPRChecks() ([]CheckStatus, error) {
 	return checks, nil
 }
 
+// HumanizeBranchName converts a branch name into a human-readable title
+// by stripping the prefix, replacing hyphens and underscores with spaces,
+// and capitalizing the first letter (e.g. "feature/add-auth" becomes "Add auth").
 func HumanizeBranchName(branch, prefix string) string {
 	name := strings.TrimPrefix(branch, prefix)
 	name = strings.ReplaceAll(name, "-", " ")
