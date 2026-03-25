@@ -36,7 +36,10 @@ jobs:
           version: latest
           args: release --snapshot --skip=publish,snapcraft,nfpm --clean
       - name: Delete existing latest release
-        run: gh release delete latest --yes --cleanup-tag || true
+        run: |
+          if gh release view latest &>/dev/null; then
+            gh release delete latest --yes --cleanup-tag
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create latest release

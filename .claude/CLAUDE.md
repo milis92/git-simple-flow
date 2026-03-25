@@ -22,10 +22,10 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
     go test ./internal/... -v
 
     # Integration tests (builds binary, creates temp git repos)
-    go test ./test/... -v -count=1
+    go test -tags integration ./test/... -v -count=1
 
     # All tests with coverage
-    go test ./... -v -coverprofile=coverage.out -covermode=atomic
+    make coverage
 
 ## Lint
 
@@ -39,6 +39,10 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
 - `internal/runner/` — Command runner abstraction with dry-run/verbose support
 - `internal/git/` — Git operations wrapper (branch, tag, merge, preflight checks)
 - `internal/gh/` — GitHub CLI wrapper (PR create, merge, checks)
+- `internal/feature/` — Feature branch workflow (start, finish)
+- `internal/hotfix/` — Hotfix branch workflow (start, finish)
+- `internal/release/` — Release workflow (tag creation, version bumping)
+- `internal/status/` — Repository status display (branch, PR, release info)
 - `internal/ui/` — Styled terminal output using lipgloss
 - `internal/version/` — Semantic version parsing, bumping, comparison
 - `test/` — Integration tests that build the binary and run against temp repos
