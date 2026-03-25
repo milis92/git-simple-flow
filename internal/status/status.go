@@ -119,7 +119,9 @@ func (s *Service) Show() error {
 
 		if branch == s.Config.MainBranch {
 			ahead, _, err := s.Git.CommitsAheadBehind(s.Config.MainBranch, tag)
-			if err == nil && ahead > 0 {
+			if err != nil {
+				s.UI.Muted(fmt.Sprintf("Could not determine commits since %s: %s", tag, err))
+			} else if ahead > 0 {
 				_, _ = fmt.Fprintf(s.UI.Out, "  Ahead:         %d commits since %s\n", ahead, tag)
 			}
 		}
