@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nickssmallpdf/git-sf/internal/config"
-	"github.com/nickssmallpdf/git-sf/internal/git"
-	"github.com/nickssmallpdf/git-sf/internal/ui"
-	"github.com/nickssmallpdf/git-sf/internal/version"
+	"github.com/milis92/git-simple-flow/internal/config"
+	"github.com/milis92/git-simple-flow/internal/git"
+	"github.com/milis92/git-simple-flow/internal/ui"
+	"github.com/milis92/git-simple-flow/internal/version"
 )
 
 // Service orchestrates git, UI, and config to execute the release workflow.

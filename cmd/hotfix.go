@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"github.com/nickssmallpdf/git-sf/internal/gh"
-	"github.com/nickssmallpdf/git-sf/internal/git"
-	"github.com/nickssmallpdf/git-sf/internal/hotfix"
-	"github.com/nickssmallpdf/git-sf/internal/runner"
-	"github.com/nickssmallpdf/git-sf/internal/ui"
+	"github.com/milis92/git-simple-flow/internal/gh"
+	"github.com/milis92/git-simple-flow/internal/git"
+	"github.com/milis92/git-simple-flow/internal/hotfix"
+	"github.com/milis92/git-simple-flow/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
 )
 

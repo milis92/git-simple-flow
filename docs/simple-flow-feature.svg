@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 215" width="640" height="215">
+  <style>
+    .label { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; }
+    .tag { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 10px; font-weight: 600; }
+    .step { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 10px; }
+  </style>
+
+  <defs>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-sm" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="640" height="215" rx="12" fill="#0d1117"/>
+  <rect width="638" height="213" x="1" y="1" rx="11" fill="none" stroke="#21262d" stroke-width="1"/>
+
+  <!-- Main branch line -->
+  <line x1="40" y1="80" x2="600" y2="80" stroke="#484f58" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Feature branch (green, below) -->
+  <path d="M 140 80 C 170 80, 170 145, 200 145 L 340 145 C 365 145, 365 80, 390 80"
+        stroke="#3fb950" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+
+  <!-- Main beads -->
+  <circle cx="60"  cy="80" r="4" fill="#6e7681"/>
+  <circle cx="140" cy="80" r="5" fill="#6e7681"/>
+  <circle cx="390" cy="80" r="6" fill="#3fb950" filter="url(#glow)"/>
+  <circle cx="460" cy="80" r="7" fill="#d2a8ff" filter="url(#glow)"/>
+  <circle cx="580" cy="80" r="3" fill="#484f58"/>
+
+  <!-- Feature beads -->
+  <circle cx="230" cy="145" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+  <circle cx="285" cy="145" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+  <circle cx="340" cy="145" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
+
+  <!-- Labels -->
+  <text x="40" y="68" class="label" fill="#6e7681">main</text>
+  <text x="285" y="135" text-anchor="middle" class="label" fill="#3fb950">feature/my-feature</text>
+
+  <!-- Step indicator lines -->
+  <line x1="230" y1="153" x2="230" y2="175" stroke="#484f58" stroke-width="1" opacity="0.4"/>
+  <line x1="285" y1="153" x2="285" y2="175" stroke="#484f58" stroke-width="1" opacity="0.4"/>
+  <line x1="340" y1="153" x2="340" y2="175" stroke="#484f58" stroke-width="1" opacity="0.4"/>
+
+  <!-- Step labels -->
+  <text x="230" y="190" text-anchor="middle" class="step" fill="#6e7681">start</text>
+  <text x="285" y="190" text-anchor="middle" class="step" fill="#6e7681">work</text>
+  <text x="340" y="190" text-anchor="middle" class="step" fill="#6e7681">finish</text>
+
+  <!-- v1.2.0 tag -->
+  <line x1="460" y1="62" x2="460" y2="71" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
+  <rect x="435" y="42" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
+  <text x="460" y="56" text-anchor="middle" class="tag" fill="#d2a8ff">v1.2.0</text>
+
+  <!-- Optional release annotation -->
+  <text x="460" y="103" text-anchor="middle" class="step" fill="#484f58" font-style="italic">(optional release)</text>
+</svg>

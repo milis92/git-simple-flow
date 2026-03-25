@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nickssmallpdf/git-sf/internal/runner"
-	"github.com/nickssmallpdf/git-sf/internal/version"
+	"github.com/milis92/git-simple-flow/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/version"
 )
 
 // Git provides git operations scoped to a specific working directory.

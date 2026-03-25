@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/nickssmallpdf/git-sf/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/runner"
 )
 
 // GH provides GitHub CLI operations. It delegates command execution to a runner.Runner.

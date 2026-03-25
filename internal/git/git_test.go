@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nickssmallpdf/git-sf/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/runner"
 )
 
 func setupTestRepo(t *testing.T) string {

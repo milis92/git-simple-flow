@@ -1,257 +1,249 @@
+<div align="center">
+
 # git-sf
 
-Simple Flow — a lightweight, opinionated Git workflow CLI for trunk-based development.
+Simple Git Flow — a lightweight, opinionated Git workflow for trunk-based development.
 
-Manage feature branches, hotfixes, and semver releases with a single `git sf` command. git-sf wraps `git` and the GitHub CLI (`gh`) to enforce a consistent, linear workflow: branch from `main`, open a PR, merge back, tag a release.
+[![CI](https://github.com/milis92/git-simple-flow/actions/workflows/ci.yml/badge.svg)](https://github.com/milis92/git-simple-flow/actions/workflows/ci.yml) [![Go](https://img.shields.io/github/go-mod/go-version/milis92/git-simple-flow)](https://go.dev/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+<picture>
+  <img alt="Simple Flow — feature branches, semver releases, and hotfixes on trunk" src="docs/simple-flow-diagram.svg" width="900">
+</picture>
+
+</div>
+
+---
+
+## Why git-sf?
+
+Teams doing trunk-based development still juggle `git`, `gh`, and manual versioning across multiple commands just to
+branch, open a PR, merge, and tag a release. `git-sf` wraps the full workflow into simple, composable commands with
+semver versioning built in — so you can stop remembering the right sequence and focus on shipping code.
+
+> [!TIP]
+> Read the [workflow guide](docs/simple-flow.md) to understand the philosophy before diving into commands.
+
+---
+
+## Features
+
+- **One command per action** — start, publish, finish, or discard a branch in a single step
+- **Semver releases** — tag `major`, `minor`, or `patch` releases directly from `main`
+- **Hotfix from tags** — branch from the exact release, not from trunk, so no unreleased code leaks in
+- **Dry-run mode** — preview every git/gh command before it runs with `--dry-run`
+- **Three-layer config** — defaults, global (`~/.config/git-sf/config.yml`), and repo (`.sfconfig.yml`)
+- **Shell completions** — tab completion for bash, zsh, fish, and PowerShell
+- **Works as a git subcommand** — installed as `git-sf`, invoked as `git sf`
 
 ---
 
 ## Installation
 
-### Homebrew (macOS / Linux)
+> [!IMPORTANT]
+> **Prerequisites:**  
+> [git](https://git-scm.com/) 2.x+  
+> [GitHub CLI](https://cli.github.com/) for PR operations.
+
+**Homebrew (macOS / Linux):**
 
 ```sh
-brew install nickssmallpdf/tap/git-sf
+brew install milis92/tap/git-sf
 ```
 
-### APT (Debian / Ubuntu)
+**Go install:**
 
 ```sh
-curl -fsSL https://github.com/nickssmallpdf/git-sf/releases/latest/download/git-sf_linux_amd64.deb -o git-sf.deb
-sudo dpkg -i git-sf.deb
+go install github.com/milis92/git-simple-flow@latest
 ```
 
-### RPM (Fedora / RHEL)
-
-```sh
-curl -fsSL https://github.com/nickssmallpdf/git-sf/releases/latest/download/git-sf_linux_amd64.rpm -o git-sf.rpm
-sudo rpm -i git-sf.rpm
-```
-
-### Snap
+**Snap:**
 
 ```sh
 sudo snap install git-sf --classic
 ```
 
-### Scoop (Windows)
+Also available as `.deb`, `.rpm`, Scoop (Windows), and manual download.
+
+**Verify it works:**
 
 ```sh
-scoop bucket add nickssmallpdf https://github.com/nickssmallpdf/scoop-bucket
-scoop install git-sf
+git sf --help
 ```
 
-### Go install
-
-```sh
-go install github.com/nickssmallpdf/git-sf@latest
-```
-
-### GitHub Releases
-
-Download a pre-built binary for your platform from the [Releases page](https://github.com/nickssmallpdf/git-sf/releases), extract the archive, and place `git-sf` somewhere on your `PATH`.
-
-Because the binary is named `git-sf`, Git automatically exposes it as the subcommand `git sf`.
+> [!TIP]
+> See the [full installation guide](docs/installation.md) for all install options, configuration and shell completions.
 
 ---
 
 ## Quick Start
 
 ```sh
-# Initialize a config file in your repo (optional)
-git sf init
-
-# Start a feature branch
-git sf feature start my-feature
-
-# Work, commit, then push and open a PR
-git sf feature publish
-
-# Merge the PR and clean up
-git sf feature finish
-
-# Cut a release from main
-git sf release minor
+git sf init                        # create .sfconfig.yml with defaults
+git sf feature start my-feature    # branch from main
+git sf feature publish             # push + open PR
+git sf feature finish              # merge PR + clean up
+git sf release minor               # tag v1.x.0
 ```
 
----
-
-## Command Reference
-
-### Global flags
-
-| Flag | Description |
-|---|---|
-| `--dry-run` | Print commands without executing them |
-| `--verbose` | Print each command as it executes |
+Start by running `git sf init` to generate a `.sfconfig.yml` in your repo root with sensible defaults.
+Edit it to match your team's conventions (branch prefixes, merge strategy, etc.), then follow the
+branch → review → merge → release cycle above.
 
 ---
 
-### `git sf init`
+## Usage
 
-Create a `.sfconfig.yml` file in the repo root with default settings.
+> [!TIP]
+> Every command supports `--dry-run` (preview without executing) and `--verbose` (print each command as it runs).
 
-| Flag | Description |
-|---|---|
-| `--force` | Overwrite an existing config file |
+### Features
 
----
-
-### `git sf config`
-
-Show the effective configuration, with the source of each value (default, global, or repo).
-
----
-
-### `git sf status`
-
-Show the current branch type, linked PR, CI check summary, commits ahead/behind `main`, latest tag, and next release candidates.
-
----
-
-### `git sf feature`
-
-| Subcommand | Description |
-|---|---|
-| `feature start <name>` | Create `feature/<name>` from the latest `main` |
-| `feature publish` | Push the branch and open a PR against `main` |
-| `feature finish` | Merge the PR, switch back to `main`, delete the branch |
-| `feature discard` | Close the PR, delete the branch, switch back to `main` |
-
-**`feature start` flags**
-
-| Flag | Description |
-|---|---|
-| `--draft-pr` | Create a draft PR immediately after branching |
-| `--title <text>` | PR title (defaults to a humanized branch name) |
-
-**`feature publish` flags**
-
-| Flag | Description |
-|---|---|
-| `--title <text>` | PR title |
-| `--body <text>` | PR description |
-
-**`feature finish` flags**
-
-| Flag | Description |
-|---|---|
-| `--force` | Merge even if PR checks are failing |
-
-**`feature discard` flags**
-
-| Flag | Description |
-|---|---|
-| `--reason <text>` | Comment to post on the closed PR |
-
----
-
-### `git sf hotfix`
-
-| Subcommand | Description |
-|---|---|
-| `hotfix start <name>` | Create `hotfix/<name>` from the latest release tag |
-| `hotfix publish` | Push the branch and open a PR against `main` |
-| `hotfix finish` | Merge the PR, switch back to `main`, delete the branch |
-| `hotfix discard` | Close the PR, delete the branch, switch back to `main` |
-
-**`hotfix start` flags**
-
-| Flag | Description |
-|---|---|
-| `--draft-pr` | Create a draft PR immediately |
-| `--title <text>` | PR title |
-
-**`hotfix publish` flags**
-
-| Flag | Description |
-|---|---|
-| `--title <text>` | PR title |
-| `--body <text>` | PR description |
-
-**`hotfix finish` flags**
-
-| Flag | Description |
-|---|---|
-| `--force` | Merge even if PR checks are failing |
-| `--release` | Auto-tag a patch release after merging |
-
-**`hotfix discard` flags**
-
-| Flag | Description |
-|---|---|
-| `--reason <text>` | Comment to post on the closed PR |
-
----
-
-### `git sf release [major|minor|patch]`
-
-Tag and push a semver release from `main`. Defaults to `minor` (configurable).
-
-Requires the local branch to be in sync with `origin/main`. Prompts for confirmation before tagging.
-
----
-
-### `git sf completion`
-
-Generate shell completion scripts.
+Features branch from `main`, get a PR, and merge back when done.
 
 ```sh
-git sf completion bash   # Bash
-git sf completion zsh    # Zsh
-git sf completion fish   # Fish
-git sf completion ps     # PowerShell
+git sf feature start my-feature    # create feature/my-feature from main
+git sf feature publish             # push branch + open PR
+git sf feature finish              # merge PR, delete branch, switch to main
+git sf feature discard             # close PR, delete branch, switch to main
 ```
 
-Source the output in your shell profile to enable tab completion.
+| Flag         | Command            | Description                                     |
+|--------------|--------------------|-------------------------------------------------|
+| `--draft-pr` | `start`            | Create a draft PR immediately after branching   |
+| `--title`    | `start`, `publish` | Override the auto-generated PR title            |
+| `--body`     | `publish`          | Set the PR description                          |
+| `--force`    | `finish`           | Skip CI check verification before merging       |
+| `--reason`   | `discard`          | Leave a comment on the closed PR explaining why |
+
+`start` checks out `main`, pulls latest, and creates the branch. If `--draft-pr` is passed (or `draft_pr_on_start` is
+enabled in config), it also pushes and opens a draft PR in one step.
+
+`finish` verifies all CI checks pass before merging (override with `--force`), prompts for confirmation, merges using
+your configured strategy (`squash`/`merge`/`rebase`), then deletes the local and remote branches.
+
+### Hotfixes
+
+Hotfixes branch from the **latest release tag** — not from `main` — so unreleased code never leaks into the fix.
+
+```sh
+git sf hotfix start crash-fix      # branch from latest release tag
+git sf hotfix publish              # push branch + open PR
+git sf hotfix finish               # merge PR, clean up
+git sf hotfix discard              # close PR, delete branch, switch to main
+```
+
+| Flag         | Command            | Description                                     |
+|--------------|--------------------|-------------------------------------------------|
+| `--draft-pr` | `start`            | Create a draft PR immediately after branching   |
+| `--title`    | `start`, `publish` | Override the auto-generated PR title            |
+| `--body`     | `publish`          | Set the PR description                          |
+| `--force`    | `finish`           | Skip CI check verification before merging       |
+| `--release`  | `finish`           | Auto-tag a patch release after merging          |
+| `--reason`   | `discard`          | Leave a comment on the closed PR explaining why |
+
+`--release` on `finish` (or `hotfix_auto_release` in config) automatically bumps the patch version, creates a new tag,
+and pushes it — so `v1.2.3` becomes `v1.2.4` without a separate `release` command.
+
+### Releases
+
+Releases tag `main` with the next semver version and push the tag to origin.
+
+```sh
+git sf release minor               # tag next minor version (default)
+git sf release major               # tag next major version
+git sf release patch               # tag next patch version
+```
+
+The command verifies that your local `main` is in sync with origin before tagging. If no tags exist yet, the first
+release starts at `v0.1.0`. The bump type argument is optional — when omitted, it uses your `default_release_bump`
+config (default: `minor`).
+
+### Status
+
+`status` gives you a quick overview of where you are and what's going on.
+
+```sh
+git sf status
+```
+
+On a **feature or hotfix branch**, it shows:
+
+- Branch name and type
+- Associated PR number, URL, and draft status
+- CI check summary (passing / failing / pending)
+- How far ahead or behind `main` you are
+
+On **main**, it shows:
+
+- The latest release tag
+- How many commits since the last release
+- The next version numbers for major, minor, and patch bumps
+
+### Config & Init
+
+```sh
+git sf init                        # create .sfconfig.yml with defaults
+git sf init --force                # overwrite an existing .sfconfig.yml
+git sf config                      # show effective config + sources
+```
+
+`config` displays every setting along with where it comes from — `(default)`, `(global)`, or `(repo)` — so you can see
+exactly which layer is providing each value.
+
+### Shell Completions
+
+```sh
+git sf completion bash             # output bash completions
+git sf completion zsh              # output zsh completions
+git sf completion fish             # output fish completions
+git sf completion powershell       # output PowerShell completions
+```
+
+Pipe the output to the appropriate file for your shell. See the [installation guide](docs/installation.md) for setup
+instructions.
 
 ---
 
 ## Configuration
 
-Configuration is merged from three layers, in order of increasing priority:
+Configuration is merged from three layers (highest priority last):
 
 1. Built-in defaults
-2. Global config: `~/.config/git-sf/config.yml`
-3. Repo config: `.sfconfig.yml` at the repo root
+2. Global config — `~/.config/git-sf/config.yml`
+3. Repo config — `.sfconfig.yml` at the repo root
 
-### All options
+| Key                    | Default    | Description                                       |
+|------------------------|------------|---------------------------------------------------|
+| `main_branch`          | `main`     | The trunk branch name                             |
+| `tag_prefix`           | `v`        | Prefix for release tags (e.g. `v1.2.3`)           |
+| `feature_prefix`       | `feature/` | Prefix for feature branches                       |
+| `hotfix_prefix`        | `hotfix/`  | Prefix for hotfix branches                        |
+| `merge_strategy`       | `squash`   | PR merge strategy: `squash`, `merge`, or `rebase` |
+| `default_release_bump` | `minor`    | Default semver bump: `major`, `minor`, or `patch` |
+| `draft_pr_on_start`    | `false`    | Auto-create draft PR when starting a branch       |
+| `hotfix_auto_release`  | `false`    | Auto-tag patch release after `hotfix finish`      |
 
-| Key | Default | Description |
-|---|---|---|
-| `main_branch` | `main` | The trunk branch name |
-| `tag_prefix` | `v` | Prefix for release tags (e.g. `v1.2.3`) |
-| `feature_prefix` | `feature/` | Prefix for feature branches |
-| `hotfix_prefix` | `hotfix/` | Prefix for hotfix branches |
-| `merge_strategy` | `squash` | PR merge strategy: `squash`, `merge`, or `rebase` |
-| `default_release_bump` | `minor` | Default semver bump: `major`, `minor`, or `patch` |
-| `draft_pr_on_start` | `false` | Automatically create a draft PR when starting a branch |
-| `hotfix_auto_release` | `false` | Automatically tag a patch release after `hotfix finish` |
-
-### Example `.sfconfig.yml`
+Example `.sfconfig.yml`:
 
 ```yaml
 main_branch: main
-tag_prefix: v
-feature_prefix: feature/
-hotfix_prefix: hotfix/
 merge_strategy: squash
 default_release_bump: minor
-draft_pr_on_start: false
-hotfix_auto_release: false
+draft_pr_on_start: true
 ```
 
 Run `git sf config` to inspect the resolved values and where each one comes from.
 
 ---
 
-## Requirements
-
-- `git` 2.x or later
-- `gh` (GitHub CLI) — required for PR operations (`feature publish`, `feature finish`, `hotfix publish`, `hotfix finish`)
-
----
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+[Installation](docs/installation.md) · [Simple Flow Workflow](docs/simple-flow.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+
+</div>
