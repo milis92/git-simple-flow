@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 3m
 
@@ -5,12 +7,14 @@ linters:
   enable:
     - errcheck
     - gocritic
-    - gofmt
     - govet
     - ineffassign
     - staticcheck
-    - stylecheck
     - unused
+
+formatters:
+  enable:
+    - gofmt
 
 linters-settings:
   gocritic:

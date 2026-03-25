@@ -13,6 +13,6 @@ jobs:
           go-version-file: go.mod
       - name: Check formatting
         run: make fmt-check
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64.5
+          version: v2.11.4
