@@ -1,3 +1,7 @@
+// Package config implements 3-layer configuration loading for git-sf.
+// Configuration is resolved by merging layers in order: built-in defaults,
+// global config (~/.config/git-sf/config.yml), and repo config (.sfconfig.yml).
+// Each layer overrides non-zero values from the layer below.
 package config
 
 import (
@@ -7,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// Config holds the fully resolved configuration with all fields populated.
 type Config struct {
 	MainBranch         string `yaml:"main_branch"`
 	TagPrefix          string `yaml:"tag_prefix"`
@@ -18,6 +23,9 @@ type Config struct {
 	HotfixAutoRelease  bool   `yaml:"hotfix_auto_release"`
 }
 
+// PartialConfig represents a sparse configuration from a single layer (global
+// or repo). String fields use zero values to indicate "not set". Bool fields
+// use pointers so that nil (not set) is distinguishable from false.
 type PartialConfig struct {
 	MainBranch         string `yaml:"main_branch"`
 	TagPrefix          string `yaml:"tag_prefix"`
@@ -29,6 +37,7 @@ type PartialConfig struct {
 	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release"`
 }
 
+// Defaults returns the built-in default configuration.
 func Defaults() Config {
 	return Config{
 		MainBranch:         "main",
@@ -42,6 +51,8 @@ func Defaults() Config {
 	}
 }
 
+// LoadFromFile reads and parses a YAML config file at the given path.
+// If the file does not exist, it returns (nil, nil) rather than an error.
 func LoadFromFile(path string) (*PartialConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -57,6 +68,8 @@ func LoadFromFile(path string) (*PartialConfig, error) {
 	return &cfg, nil
 }
 
+// Merge applies partial config layers onto a base in order, overriding only
+// non-zero string fields and non-nil bool pointer fields. Nil layers are skipped.
 func Merge(base Config, layers ...*PartialConfig) Config {
 	result := base
 	for _, layer := range layers {
@@ -91,6 +104,8 @@ func Merge(base Config, layers ...*PartialConfig) Config {
 	return result
 }
 
+// WriteDefaults writes the default configuration as YAML to the given path.
+// It returns an error if the file already exists.
 func WriteDefaults(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("config file already exists: %s (use --force to overwrite)", path)
@@ -102,6 +117,8 @@ func WriteDefaults(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// ForceWriteDefaults writes the default configuration as YAML to the given path,
+// overwriting any existing file.
 func ForceWriteDefaults(path string) error {
 	data, err := yaml.Marshal(Defaults())
 	if err != nil {
