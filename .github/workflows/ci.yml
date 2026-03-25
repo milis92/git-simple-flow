@@ -14,32 +14,6 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Run unit tests
-        run: go test ./internal/... -v
-      - name: Run integration tests
-        run: go test -tags integration ./test/... -v -count=1
-
+    uses: ./.github/workflows/test.yml
   lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Check formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "Files not formatted:"
-            echo "$unformatted"
-            exit 1
-          fi
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.5
+    uses: ./.github/workflows/lint.yml
