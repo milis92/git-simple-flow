@@ -83,7 +83,7 @@ func (u *UI) Confirm(msg string) (bool, error) {
 	var response string
 	_, err := fmt.Fscanln(u.In, &response)
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("could not read user input: %w", err)
 	}
 	return response == "y" || response == "Y" || response == "yes", nil
 }
