@@ -44,6 +44,6 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v1.64.5
