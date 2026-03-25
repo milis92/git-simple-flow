@@ -1,3 +1,5 @@
+// Package git wraps the git CLI for branch, tag, and sync operations.
+// All commands are scoped to a specific directory via the -C flag.
 package git
 
 import (
@@ -9,54 +11,66 @@ import (
 	"github.com/nickssmallpdf/git-sf/internal/version"
 )
 
+// Git provides git operations scoped to a specific working directory.
+// It delegates command execution to a runner.Runner instance.
 type Git struct {
 	runner *runner.Runner
 	dir    string
 }
 
+// New creates a Git instance that operates on the given directory.
 func New(r *runner.Runner, dir string) *Git {
 	return &Git{runner: r, dir: dir}
 }
 
+// run executes a git command with -C <dir> prepended to the arguments.
 func (g *Git) run(args ...string) (string, error) {
 	fullArgs := append([]string{"-C", g.dir}, args...)
 	return g.runner.Run("git", fullArgs...)
 }
 
+// CurrentBranch returns the name of the currently checked-out branch.
 func (g *Git) CurrentBranch() (string, error) {
 	return g.run("rev-parse", "--abbrev-ref", "HEAD")
 }
 
+// Checkout switches to the given branch or ref.
 func (g *Git) Checkout(branch string) error {
 	_, err := g.run("checkout", branch)
 	return err
 }
 
+// CreateBranch creates a new branch and switches to it.
 func (g *Git) CreateBranch(name string) error {
 	_, err := g.run("checkout", "-b", name)
 	return err
 }
 
+// Pull fetches and merges changes from the remote tracking branch.
 func (g *Git) Pull() error {
 	_, err := g.run("pull")
 	return err
 }
 
+// Push pushes the given branch to origin and sets it as the upstream.
 func (g *Git) Push(branch string) error {
 	_, err := g.run("push", "-u", "origin", branch)
 	return err
 }
 
+// DeleteLocalBranch force-deletes a local branch.
 func (g *Git) DeleteLocalBranch(branch string) error {
 	_, err := g.run("branch", "-D", branch)
 	return err
 }
 
+// DeleteRemoteBranch deletes a branch from the origin remote.
 func (g *Git) DeleteRemoteBranch(branch string) error {
 	_, err := g.run("push", "origin", "--delete", branch)
 	return err
 }
 
+// IsClean reports whether the working tree has no uncommitted changes.
 func (g *Git) IsClean() (bool, error) {
 	out, err := g.run("status", "--porcelain")
 	if err != nil {
@@ -65,16 +79,22 @@ func (g *Git) IsClean() (bool, error) {
 	return out == "", nil
 }
 
+// Tag creates a lightweight tag with the given name at HEAD.
 func (g *Git) Tag(name string) error {
 	_, err := g.run("tag", name)
 	return err
 }
 
+// PushTag pushes a single tag to origin.
 func (g *Git) PushTag(name string) error {
 	_, err := g.run("push", "origin", name)
 	return err
 }
 
+// LatestTag finds the highest semver tag matching the given prefix.
+// It lists all tags matching "<prefix>*", parses each as a semver version
+// (skipping any that fail to parse), sorts them, and returns the tag string
+// for the highest version. Returns an error if no matching tags are found.
 func (g *Git) LatestTag(prefix string) (string, error) {
 	out, err := g.run("tag", "-l", prefix+"*")
 	if err != nil {
@@ -104,11 +124,14 @@ func (g *Git) LatestTag(prefix string) (string, error) {
 	return tagMap[latest.String()], nil
 }
 
+// Fetch downloads objects and refs from origin.
 func (g *Git) Fetch() error {
 	_, err := g.run("fetch", "origin")
 	return err
 }
 
+// IsInSyncWithRemote reports whether the local branch and its origin counterpart
+// point to the same commit.
 func (g *Git) IsInSyncWithRemote(branch string) (bool, error) {
 	local, err := g.run("rev-parse", branch)
 	if err != nil {
@@ -121,6 +144,7 @@ func (g *Git) IsInSyncWithRemote(branch string) (bool, error) {
 	return local == remote, nil
 }
 
+// CommitsAheadBehind returns how many commits branch is ahead of and behind base.
 func (g *Git) CommitsAheadBehind(branch, base string) (ahead, behind int, err error) {
 	out, err := g.run("rev-list", "--left-right", "--count", base+"..."+branch)
 	if err != nil {

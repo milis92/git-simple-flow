@@ -5,6 +5,7 @@ import (
 	"os/exec"
 )
 
+// CheckGitInstalled verifies that git is available in PATH.
 func CheckGitInstalled() error {
 	_, err := exec.LookPath("git")
 	if err != nil {
@@ -13,6 +14,7 @@ func CheckGitInstalled() error {
 	return nil
 }
 
+// CheckIsRepo verifies that the working directory is inside a git repository.
 func (g *Git) CheckIsRepo() error {
 	_, err := g.run("rev-parse", "--is-inside-work-tree")
 	if err != nil {
@@ -21,6 +23,7 @@ func (g *Git) CheckIsRepo() error {
 	return nil
 }
 
+// CheckCleanTree returns an error if the working tree has uncommitted changes.
 func (g *Git) CheckCleanTree() error {
 	clean, err := g.IsClean()
 	if err != nil {
@@ -32,6 +35,7 @@ func (g *Git) CheckCleanTree() error {
 	return nil
 }
 
+// CheckOnBranch returns an error if the current branch is not the expected one.
 func (g *Git) CheckOnBranch(expected string) error {
 	branch, err := g.CurrentBranch()
 	if err != nil {
