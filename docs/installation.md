@@ -7,11 +7,6 @@
 
 ## Quick Install
 
-**macOS / Linux (Homebrew):**
-```sh
-brew install milis92/tap/git-sf
-```
-
 **Any platform with Go:**
 ```sh
 go install github.com/milis92/git-simple-flow@latest
@@ -51,12 +46,6 @@ Download [git-sf_windows_amd64.zip](https://github.com/milis92/git-simple-flow/r
 
 ## Package Managers
 
-### Homebrew (macOS / Linux)
-
-```sh
-brew install milis92/tap/git-sf
-```
-
 ### APT (Debian / Ubuntu)
 
 ```sh
@@ -69,13 +58,6 @@ sudo dpkg -i git-sf.deb
 ```sh
 curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_linux_amd64.rpm -o git-sf.rpm
 sudo rpm -i git-sf.rpm
-```
-
-### Scoop (Windows)
-
-```sh
-scoop bucket add milis92 https://github.com/milis92/scoop-bucket
-scoop install git-sf
 ```
 
 ### Go install

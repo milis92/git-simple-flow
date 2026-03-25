@@ -44,19 +44,13 @@ semver versioning built in — so you can stop remembering the right sequence an
 > [git](https://git-scm.com/) 2.x+  
 > [GitHub CLI](https://cli.github.com/) for PR operations.
 
-**Homebrew (macOS / Linux):**
-
-```sh
-brew install milis92/tap/git-sf
-```
-
 **Go install:**
 
 ```sh
 go install github.com/milis92/git-simple-flow@latest
 ```
 
-Also available as `.deb`, `.rpm`, Scoop (Windows), and manual download.
+Also available as `.deb`, `.rpm`, and manual download.
 
 **Verify it works:**
 

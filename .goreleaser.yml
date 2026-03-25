@@ -33,24 +33,6 @@ nfpms:
       - deb
       - rpm
 
-brews:
-  - repository:
-      owner: milis92
-      name: homebrew-tap
-    name: git-sf
-    homepage: https://github.com/milis92/git-simple-flow
-    description: Simple Git Flow — all the structure, none of the ceremony
-    license: MIT
-
-scoops:
-  - repository:
-      owner: milis92
-      name: scoop-bucket
-    name: git-sf
-    homepage: https://github.com/milis92/git-simple-flow
-    description: Simple Git Flow — all the structure, none of the ceremony
-    license: MIT
-
 checksum:
   name_template: checksums.txt
 
