@@ -1,4 +1,9 @@
 {
   "name": "git-sf-workflow",
-  "description": "Teaches Claude to use git-sf for trunk-based Git workflow instead of raw git/gh commands."
+  "description": "Teaches Claude to use git-sf for trunk-based Git workflow instead of raw git/gh commands.",
+  "version": "1.0.0",
+  "author": {
+    "name": "milis92"
+  },
+  "repository": "https://github.com/milis92/git-simple-flow"
 }

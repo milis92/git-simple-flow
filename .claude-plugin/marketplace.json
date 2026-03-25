@@ -1,0 +1,17 @@
+{
+  "name": "git-sf-marketplace",
+  "owner": {
+    "name": "milis92"
+  },
+  "plugins": [
+    {
+      "name": "git-sf-workflow",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/milis92/git-simple-flow.git",
+        "path": "git-sf-skill"
+      },
+      "description": "Teaches Claude to use git-sf for trunk-based Git workflow"
+    }
+  ]
+}
