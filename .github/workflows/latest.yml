@@ -37,20 +37,43 @@ jobs:
           version: "~> v2"
           # Snapshot builds skip system packages (deb/rpm); only tar.gz/zip archives are published
           args: release --snapshot --skip=publish,nfpm --clean
-      - name: Delete existing latest release
+      - name: Compute beta version
+        id: beta
         run: |
-          if gh release view latest > /dev/null 2>&1; then
-            gh release delete latest --yes --cleanup-tag
-          else
-            echo "No existing 'latest' release found, skipping delete."
+          # Find latest stable tag (no pre-release suffix)
+          LATEST_STABLE=$(git tag -l 'v*.*.*' | grep -v '-' | sort -V | tail -1)
+          if [ -z "$LATEST_STABLE" ]; then
+            LATEST_STABLE="v0.0.0"
           fi
+
+          # Parse and bump minor
+          VERSION="${LATEST_STABLE#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          NEXT_MINOR=$((MINOR + 1))
+          BASE="v${MAJOR}.${NEXT_MINOR}.0"
+
+          # Find highest existing beta number for this base version
+          MAX_BETA=$(gh release list --limit 1000 --json tagName --jq '.[].tagName' \
+            | { grep "^${BASE}-beta\." || true; } \
+            | sed "s/^${BASE}-beta\.//" \
+            | sort -n \
+            | tail -1)
+          if [ -z "$MAX_BETA" ]; then
+            MAX_BETA=0
+          fi
+
+          NEXT_BETA=$((MAX_BETA + 1))
+          BETA_TAG="${BASE}-beta.${NEXT_BETA}"
+          echo "beta_tag=${BETA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Computed next beta version: ${BETA_TAG}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create latest release
+      - name: Create beta release
         run: |
-          gh release create latest dist/*.tar.gz dist/*.zip dist/checksums.txt \
-            --title "Latest (unstable)" \
-            --notes "Rolling build from main. Not a stable release." \
+          gh release create "${{ steps.beta.outputs.beta_tag }}" \
+            dist/*.tar.gz dist/*.zip dist/checksums.txt \
+            --title "${{ steps.beta.outputs.beta_tag }}" \
+            --notes "Pre-release build from main." \
             --prerelease \
             --target "${{ github.sha }}"
         env:
