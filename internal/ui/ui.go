@@ -2,9 +2,11 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -83,6 +85,9 @@ func (u *UI) Confirm(msg string) (bool, error) {
 	var response string
 	_, err := fmt.Fscanln(u.In, &response)
 	if err != nil {
+		if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "unexpected newline") {
+			return false, nil
+		}
 		return false, fmt.Errorf("could not read user input: %w", err)
 	}
 	return response == "y" || response == "Y" || response == "yes", nil
