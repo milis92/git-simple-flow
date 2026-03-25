@@ -3,6 +3,7 @@
 package status
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -59,7 +60,11 @@ func (s *Service) Show() error {
 			s.UI.Muted(fmt.Sprintf("PR info unavailable: %s", err))
 		} else {
 			if pr, err := s.GH.GetCurrentPR(); err != nil {
-				s.UI.Muted(fmt.Sprintf("Could not fetch PR info: %s", err))
+				if errors.Is(err, gh.ErrNoPR) {
+					s.UI.Muted("No PR for this branch")
+				} else {
+					s.UI.Muted(fmt.Sprintf("Could not fetch PR info: %s", err))
+				}
 			} else {
 				draft := ""
 				if pr.Draft {
