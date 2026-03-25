@@ -1,0 +1,30 @@
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      upload-coverage:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Run unit tests with coverage
+        run: make coverage
+      - name: Run integration tests
+        run: make test-integration
+      - name: Upload coverage to Codecov
+        if: ${{ inputs.upload-coverage }}
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5
+        with:
+          files: coverage.out
+          fail_ci_if_error: false

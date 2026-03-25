@@ -5,7 +5,8 @@
 - [Go](https://go.dev/) 1.26+ (see `go.mod` for exact version)
 - [git](https://git-scm.com/) 2.x or later
 - [gh](https://cli.github.com/) (GitHub CLI) — needed to run integration tests
-- [golangci-lint](https://golangci-lint.run/) — for linting
+
+`golangci-lint` is managed automatically via Go's [tool directive](https://go.dev/doc/modules/managing-dependencies#tools) in `go.mod` — no separate install needed.
 
 ## Getting Started
 
@@ -41,19 +42,27 @@ go build -o git-sf .
 **Unit tests** — test internal packages in isolation:
 
 ```sh
-go test ./internal/... -v
+make test
+# or: go test ./internal/... -v
 ```
 
 **Integration tests** — build the binary and run it against temporary git repos:
 
 ```sh
-go test ./test/... -v -count=1
+make test-integration
+# or: go test -tags integration ./test/... -v -count=1
 ```
 
-**All tests with coverage:**
+**Unit tests with coverage:**
 
 ```sh
-go test ./... -v -coverprofile=coverage.out -covermode=atomic
+make coverage
+```
+
+**All tests (unit + integration):**
+
+```sh
+make test-all
 ```
 
 Integration tests create real git repositories in temp directories, run actual `git` and `git-sf` commands, and verify
@@ -62,7 +71,20 @@ the results. They require `git` and `gh` to be installed.
 ## Linting
 
 ```sh
-golangci-lint run
+make lint
+# or: go tool golangci-lint run
+```
+
+Format checking:
+
+```sh
+make fmt-check
+```
+
+Auto-format:
+
+```sh
+make fmt
 ```
 
 ## Conventions
@@ -85,13 +107,10 @@ golangci-lint run
 
 ## Release Process
 
-Releases are automated via [GoReleaser](https://goreleaser.com/). When a tag matching `v*.*.*` is pushed, CI builds
-binaries for all platforms (Linux, macOS, Windows × AMD64, ARM64) and publishes to:
+Releases are automated via [GoReleaser](https://goreleaser.com/):
 
-- GitHub Releases (tar.gz/zip archives)
-- Homebrew (`milis92/homebrew-tap`)
-- Scoop (`milis92/scoop-bucket`)
-- Snap Store
-- Debian and RPM packages
+- **Stable releases** — when a tag matching `v*.*.*` is pushed, CI runs tests and lint, then builds binaries for all platforms (Linux, macOS, Windows × AMD64, ARM64) and publishes to GitHub Releases, Homebrew (`milis92/homebrew-tap`), Scoop (`milis92/scoop-bucket`), Snap Store, and Debian/RPM packages.
+
+- **Latest (unstable)** — every push to `main` produces a rolling "latest" pre-release with snapshot builds (tar.gz/zip archives only, no system packages).
 
 Contributors don't need to run GoReleaser locally. Just open a PR, get it merged, and a maintainer will tag the release.
