@@ -9,8 +9,8 @@ description: >
 
 ## Overview
 
-git-sf is a trunk-based Git workflow CLI. Use it for all branch/PR/release lifecycle ops when available. Fall back to
-raw git/gh if not installed.
+git-sf is a Git workflow CLI that sits between Git Flow and GitHub Flow. Use it for all branch/PR/release lifecycle ops
+when available. Fall back to raw git/gh if not installed.
 
 ```sh
 which git-sf   # verify presence before using

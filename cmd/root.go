@@ -18,8 +18,8 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "git-sf",
-	Short: "Simple Flow — trunk-based Git workflow CLI",
-	Long:  "A lightweight, opinionated Git workflow CLI for trunk-based development.",
+	Short: "Simple Git Flow — all the structure, none of the ceremony",
+	Long:  "A Git branching model that sits between Git Flow and GitHub Flow. Feature branches with semver versioning built in.",
 }
 
 // Execute runs the root command. It exits with code 1 on error.

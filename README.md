@@ -2,7 +2,7 @@
 
 # git-sf
 
-Simple Git Flow — a lightweight, opinionated Git workflow for trunk-based development.
+Simple Git Flow — all the structure, none of the ceremony.
 
 [![CI](https://github.com/milis92/git-simple-flow/actions/workflows/ci.yml/badge.svg)](https://github.com/milis92/git-simple-flow/actions/workflows/ci.yml) [![Go](https://img.shields.io/github/go-mod/go-version/milis92/git-simple-flow)](https://go.dev/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -16,7 +16,7 @@ Simple Git Flow — a lightweight, opinionated Git workflow for trunk-based deve
 
 ## Why git-sf?
 
-Teams doing trunk-based development still juggle `git`, `gh`, and manual versioning across multiple commands just to
+Teams still juggle `git`, `gh`, and manual versioning across multiple commands just to
 branch, open a PR, merge, and tag a release. `git-sf` wraps the full workflow into simple, composable commands with
 semver versioning built in — so you can stop remembering the right sequence and focus on shipping code.
 

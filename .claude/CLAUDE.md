@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git workflow. It wraps `git` and `gh` (GitHub CLI) to manage feature branches, hotfixes, and semver releases via a single `git sf` command.
+git-sf (Simple Flow) is a Git branching model that sits between Git Flow and GitHub Flow. It keeps the single-trunk simplicity of GitHub Flow but adds structured hotfix paths from Git Flow — without release branches, develop branches, or feature flags. It wraps `git` and `gh` (GitHub CLI) to manage feature branches, hotfixes, and semver releases via a single `git sf` command.
 
 ## Prerequisites
 

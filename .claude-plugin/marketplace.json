@@ -11,7 +11,7 @@
         "url": "https://github.com/milis92/git-simple-flow.git",
         "path": ".claude-plugin/plugin"
       },
-      "description": "Teaches Claude to use git-sf for trunk-based Git workflow"
+      "description": "Teaches Claude to use git-sf — Simple Git Flow, all the structure, none of the ceremony"
     }
   ]
 }

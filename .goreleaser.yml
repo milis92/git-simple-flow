@@ -27,7 +27,7 @@ nfpms:
     vendor: milis92
     homepage: https://github.com/milis92/git-simple-flow
     maintainer: milis92
-    description: Simple Flow — trunk-based Git workflow CLI
+    description: Simple Git Flow — all the structure, none of the ceremony
     license: MIT
     formats:
       - deb
@@ -35,9 +35,9 @@ nfpms:
 
 snapcrafts:
   - name: git-sf
-    summary: Simple Flow — trunk-based Git workflow CLI
+    summary: Simple Git Flow — all the structure, none of the ceremony
     description: |
-      A lightweight, opinionated Git workflow CLI for trunk-based development.
+      A Git branching model that sits between Git Flow and GitHub Flow. Feature branches with semver versioning built in.
       Manage feature branches, hotfixes, and semver releases with simple commands.
     grade: stable
     confinement: classic
@@ -52,7 +52,7 @@ brews:
       name: homebrew-tap
     name: git-sf
     homepage: https://github.com/milis92/git-simple-flow
-    description: Simple Flow — trunk-based Git workflow CLI
+    description: Simple Git Flow — all the structure, none of the ceremony
     license: MIT
 
 scoops:
@@ -61,7 +61,7 @@ scoops:
       name: scoop-bucket
     name: git-sf
     homepage: https://github.com/milis92/git-simple-flow
-    description: Simple Flow — trunk-based Git workflow CLI
+    description: Simple Git Flow — all the structure, none of the ceremony
     license: MIT
 
 checksum:
