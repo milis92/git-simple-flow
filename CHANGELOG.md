@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - `completion` command for bash, zsh, fish, and PowerShell
 - Dry-run and verbose global flags
 - Styled terminal output with lipgloss
-- Homebrew, Snap, Scoop, deb, and rpm packaging
+- Homebrew, Scoop, deb, and rpm packaging
 - README with full command reference and installation instructions
 - MIT License
 

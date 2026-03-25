@@ -109,7 +109,7 @@ make fmt
 
 Releases are automated via [GoReleaser](https://goreleaser.com/):
 
-- **Stable releases** — when a tag matching `v*.*.*` is pushed, CI runs tests and lint, then builds binaries for all platforms (Linux, macOS, Windows × AMD64, ARM64) and publishes to GitHub Releases, Homebrew (`milis92/homebrew-tap`), Scoop (`milis92/scoop-bucket`), Snap Store, and Debian/RPM packages.
+- **Stable releases** — when a tag matching `v*.*.*` is pushed, CI runs tests and lint, then builds binaries for all platforms (Linux, macOS, Windows × AMD64, ARM64) and publishes to GitHub Releases, Homebrew (`milis92/homebrew-tap`), Scoop (`milis92/scoop-bucket`), and Debian/RPM packages.
 
 - **Latest (unstable)** — every push to `main` produces a rolling "latest" pre-release with snapshot builds (tar.gz/zip archives only, no system packages).
 

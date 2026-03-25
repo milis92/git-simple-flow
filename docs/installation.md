@@ -71,12 +71,6 @@ curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/g
 sudo rpm -i git-sf.rpm
 ```
 
-### Snap
-
-```sh
-sudo snap install git-sf --classic
-```
-
 ### Scoop (Windows)
 
 ```sh

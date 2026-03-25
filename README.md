@@ -56,12 +56,6 @@ brew install milis92/tap/git-sf
 go install github.com/milis92/git-simple-flow@latest
 ```
 
-**Snap:**
-
-```sh
-sudo snap install git-sf --classic
-```
-
 Also available as `.deb`, `.rpm`, Scoop (Windows), and manual download.
 
 **Verify it works:**
