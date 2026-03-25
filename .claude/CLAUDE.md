@@ -24,7 +24,7 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
     # Integration tests (builds binary, creates temp git repos)
     go test -tags integration ./test/... -v -count=1
 
-    # All tests with coverage
+    # Unit tests with coverage
     make coverage
 
 ## Lint
@@ -60,4 +60,14 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
 
 ## Release
 
-Releases are automated via GoReleaser on tag push (`v*.*.*`). Multi-platform: Linux/Darwin/Windows x AMD64/ARM64.
+Stable releases are automated via GoReleaser on tag push (`v*.*.*`). Multi-platform: Linux/Darwin/Windows x AMD64/ARM64. Every push to `main` also produces a rolling "latest" pre-release with snapshot builds (binaries only, no system packages).
+
+## CI Pipelines
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | PRs to `main` | Runs test + lint |
+| `latest.yml` | Push to `main` | Runs test + lint, deploys rolling pre-release |
+| `stable.yml` | Tag `v*.*.*` | Runs test + lint, full GoReleaser release |
+| `test.yml` | Reusable | `make coverage` + `make test-integration` + optional Codecov |
+| `lint.yml` | Reusable | `make fmt-check` + `make lint` |
