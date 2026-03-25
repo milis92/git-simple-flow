@@ -1,3 +1,4 @@
+// Package runner provides a command execution abstraction with dry-run and verbose support.
 package runner
 
 import (
@@ -9,12 +10,19 @@ import (
 	"strings"
 )
 
+// Runner executes shell commands. It supports dry-run mode (prints commands
+// without executing) and verbose mode (prints commands before executing).
 type Runner struct {
-	DryRun  bool
+	// DryRun, when true, prints the command to Output instead of executing it.
+	DryRun bool
+	// Verbose, when true, prints the command to Output before executing it.
 	Verbose bool
-	Output  io.Writer
+	// Output is the writer for diagnostic output (dry-run and verbose messages).
+	Output io.Writer
 }
 
+// NewRunner creates a Runner with the given dry-run and verbose settings.
+// Diagnostic output defaults to stderr.
 func NewRunner(dryRun, verbose bool) *Runner {
 	return &Runner{
 		DryRun:  dryRun,
@@ -23,6 +31,9 @@ func NewRunner(dryRun, verbose bool) *Runner {
 	}
 }
 
+// Run executes the named command with the given arguments. It captures stdout
+// and returns it as a trimmed string. On failure, the returned error includes
+// the command string and stderr output.
 func (r *Runner) Run(name string, args ...string) (string, error) {
 	cmdStr := name + " " + strings.Join(args, " ")
 
