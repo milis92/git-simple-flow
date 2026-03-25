@@ -9,7 +9,7 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
 - Go (see `go.mod` for version)
 - `git` 2.x or later
 - `gh` (GitHub CLI) — required for PR operations
-- `golangci-lint` — for linting
+- `golangci-lint` — pinned via `go tool` in `go.mod`, no separate install needed
 
 ## Build & Run
 
@@ -29,14 +29,14 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
 
 ## Lint
 
-    golangci-lint run
+    make lint
 
 ## Project Structure
 
 - `main.go` — Entry point, calls `cmd.Execute()`
 - `cmd/` — Cobra command definitions (feature, hotfix, release, status, config, completion)
 - `internal/config/` — 3-layer config loading (defaults -> global -> repo)
-- `internal/exec/` — Command runner abstraction with dry-run/verbose support
+- `internal/runner/` — Command runner abstraction with dry-run/verbose support
 - `internal/git/` — Git operations wrapper (branch, tag, merge, preflight checks)
 - `internal/gh/` — GitHub CLI wrapper (PR create, merge, checks)
 - `internal/ui/` — Styled terminal output using lipgloss
@@ -48,7 +48,7 @@ git-sf (Simple Flow) is a lightweight CLI tool that enforces trunk-based Git wor
 - Go module: `github.com/milis92/git-simple-flow`
 - CLI framework: spf13/cobra + spf13/viper
 - All internal packages use interface-based design for testability
-- `exec.Runner` is the abstraction for running shell commands (supports dry-run)
+- `runner.Runner` is the abstraction for running shell commands (supports dry-run)
 - Config files: `.sfconfig.yml` (repo-level), `~/.config/git-sf/config.yml` (global)
 - Branch prefixes: `feature/`, `hotfix/` (configurable)
 - Tag format: `v<major>.<minor>.<patch>` (prefix configurable)

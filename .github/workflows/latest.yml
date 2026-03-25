@@ -44,6 +44,7 @@ jobs:
           gh release create latest dist/*.tar.gz dist/*.zip dist/checksums.txt \
             --title "Latest (unstable)" \
             --notes "Rolling build from main. Not a stable release." \
-            --prerelease
+            --prerelease \
+            --target ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
