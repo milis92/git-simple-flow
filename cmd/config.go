@@ -63,8 +63,8 @@ var configCmd = &cobra.Command{
 			func(c *config.PartialConfig) string { return c.MergeStrategy })
 		printConfigField(u, "default_release_bump", cfg.DefaultReleaseBump, "minor", global, repo,
 			func(c *config.PartialConfig) string { return c.DefaultReleaseBump })
-		fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", "draft_pr_on_start", cfg.DraftPROnStart, "(default)")
-		fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", "hotfix_auto_release", cfg.HotfixAutoRelease, "(default)")
+		_, _ = fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", "draft_pr_on_start", cfg.DraftPROnStart, "(default)")
+		_, _ = fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", "hotfix_auto_release", cfg.HotfixAutoRelease, "(default)")
 		u.Blank()
 
 		return nil
@@ -81,7 +81,7 @@ func printConfigField(u *ui.UI, name, value, defaultVal string,
 	} else if global != nil && getter(global) != "" {
 		source = "(global: ~/.config/git-sf/config.yml)"
 	}
-	fmt.Fprintf(u.Out, "  %-25s %-15s %s\n", name, value, source)
+	_, _ = fmt.Fprintf(u.Out, "  %-25s %-15s %s\n", name, value, source)
 }
 
 func init() {

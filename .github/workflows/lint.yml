@@ -13,6 +13,5 @@ jobs:
           go-version-file: go.mod
       - name: Check formatting
         run: make fmt-check
-      - uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.11.4
+      - name: Run linter
+        run: make lint

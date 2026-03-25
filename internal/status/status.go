@@ -48,9 +48,9 @@ func (s *Service) Show() error {
 	}
 
 	s.UI.Blank()
-	fmt.Fprintf(s.UI.Out, "  Branch:     %s\n", branch)
+	_, _ = fmt.Fprintf(s.UI.Out, "  Branch:     %s\n", branch)
 	if branchType != "other" && branchType != s.Config.MainBranch {
-		fmt.Fprintf(s.UI.Out, "  Type:       %s\n", branchType)
+		_, _ = fmt.Fprintf(s.UI.Out, "  Type:       %s\n", branchType)
 	}
 
 	// PR info (if on feature/hotfix branch)
@@ -61,16 +61,16 @@ func (s *Service) Show() error {
 				if pr.Draft {
 					draft = " (draft)"
 				}
-				fmt.Fprintf(s.UI.Out, "  PR:         #%d%s — %s\n", pr.Number, draft, pr.URL)
+				_, _ = fmt.Fprintf(s.UI.Out, "  PR:         #%d%s — %s\n", pr.Number, draft, pr.URL)
 
 				// Show checks
 				if checks, err := s.GH.GetPRChecks(); err == nil && len(checks) > 0 {
 					passing, failing, pending := 0, 0, 0
 					for _, c := range checks {
-						switch {
-						case c.Conclusion == "success":
+						switch c.Conclusion {
+						case "success":
 							passing++
-						case c.Conclusion == "failure":
+						case "failure":
 							failing++
 						default:
 							pending++
@@ -84,7 +84,7 @@ func (s *Service) Show() error {
 					if pending > 0 {
 						status += fmt.Sprintf(", %d pending", pending)
 					}
-					fmt.Fprintf(s.UI.Out, "  Checks:     %s\n", status)
+					_, _ = fmt.Fprintf(s.UI.Out, "  Checks:     %s\n", status)
 				}
 			}
 		}
@@ -93,10 +93,10 @@ func (s *Service) Show() error {
 		ahead, behind, err := s.Git.CommitsAheadBehind(branch, s.Config.MainBranch)
 		if err == nil {
 			if behind > 0 {
-				fmt.Fprintf(s.UI.Out, "  Behind:     %d commits behind %s\n", behind, s.Config.MainBranch)
+				_, _ = fmt.Fprintf(s.UI.Out, "  Behind:     %d commits behind %s\n", behind, s.Config.MainBranch)
 			}
 			if ahead > 0 {
-				fmt.Fprintf(s.UI.Out, "  Ahead:      %d commits ahead of %s\n", ahead, s.Config.MainBranch)
+				_, _ = fmt.Fprintf(s.UI.Out, "  Ahead:      %d commits ahead of %s\n", ahead, s.Config.MainBranch)
 			}
 		}
 	}
@@ -105,14 +105,14 @@ func (s *Service) Show() error {
 	s.UI.Blank()
 	tag, err := s.Git.LatestTag(s.Config.TagPrefix)
 	if err != nil {
-		fmt.Fprintf(s.UI.Out, "  Latest tag:    (none)\n")
+		_, _ = fmt.Fprintf(s.UI.Out, "  Latest tag:    (none)\n")
 	} else {
-		fmt.Fprintf(s.UI.Out, "  Latest tag:    %s\n", tag)
+		_, _ = fmt.Fprintf(s.UI.Out, "  Latest tag:    %s\n", tag)
 
 		if branch == s.Config.MainBranch {
 			ahead, _, err := s.Git.CommitsAheadBehind(s.Config.MainBranch, tag)
 			if err == nil && ahead > 0 {
-				fmt.Fprintf(s.UI.Out, "  Ahead:         %d commits since %s\n", ahead, tag)
+				_, _ = fmt.Fprintf(s.UI.Out, "  Ahead:         %d commits since %s\n", ahead, tag)
 			}
 		}
 
@@ -122,7 +122,7 @@ func (s *Service) Show() error {
 			major, _ := current.Bump("major")
 			minor, _ := current.Bump("minor")
 			patch, _ := current.Bump("patch")
-			fmt.Fprintf(s.UI.Out, "  Next release:  %s (minor) / %s (patch) / %s (major)\n",
+			_, _ = fmt.Fprintf(s.UI.Out, "  Next release:  %s (minor) / %s (patch) / %s (major)\n",
 				minor.FormatWithPrefix(s.Config.TagPrefix),
 				patch.FormatWithPrefix(s.Config.TagPrefix),
 				major.FormatWithPrefix(s.Config.TagPrefix))

@@ -28,7 +28,7 @@ func setupTestRepo(t *testing.T) string {
 	if _, err := f.WriteString("init"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
 		t.Fatal(err)
 	}

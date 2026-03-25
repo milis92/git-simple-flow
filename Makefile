@@ -15,7 +15,7 @@ test-all:
 	go test -tags integration ./... -v -count=1
 
 lint:
-	golangci-lint run
+	go tool golangci-lint run
 
 fmt:
 	gofmt -w .
