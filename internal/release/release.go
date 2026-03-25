@@ -1,4 +1,4 @@
-// internal/release/release.go
+// Package release creates semver releases by tagging main and pushing to origin.
 package release
 
 import (
@@ -11,12 +11,18 @@ import (
 	"github.com/nickssmallpdf/git-sf/internal/version"
 )
 
+// Service orchestrates git, UI, and config to execute the release workflow.
 type Service struct {
 	Git    *git.Git
 	UI     *ui.UI
 	Config config.Config
 }
 
+// Release creates a new semver tag on main and pushes it to origin. It verifies
+// the repo is on main and in sync with the remote, finds the latest tag, computes
+// the next version based on scope ("major", "minor", or "patch"), shows a
+// confirmation prompt with current and next versions, then creates and pushes the tag.
+// If no tags exist yet, it starts at v0.1.0.
 func (s *Service) Release(scope string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
