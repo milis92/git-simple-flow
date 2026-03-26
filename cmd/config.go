@@ -12,6 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	defaultConfigSource = "(default)"
+	globalConfigSource  = "(global: ~/.config/git-sf/config.yml)"
+	repoConfigSource    = "(repo: .sfconfig.yml)"
+)
+
 // initCmd creates a .sfconfig.yml file in the repo root. In interactive mode
 // it runs a wizard to customize settings; otherwise it writes defaults.
 var initCmd = &cobra.Command{
@@ -78,7 +84,17 @@ var configEditCmd = &cobra.Command{
 			return fmt.Errorf("config edit requires an interactive terminal (remove --no-interactive or edit .sfconfig.yml directly)")
 		}
 
-		cfg := loadConfig()
+		global, globalErr := loadGlobalConfig()
+		if globalErr != nil {
+			u.Muted(fmt.Sprintf("Could not load global config: %s", globalErr))
+		}
+		repo, repoErr := config.LoadFromFile(path)
+		if repoErr != nil {
+			return fmt.Errorf("could not load repo config: %w", repoErr)
+		}
+
+		inherited := config.Merge(config.Defaults(), global)
+		cfg := config.Merge(inherited, repo)
 		defaults := ui.InitFormResult{
 			MainBranch:    cfg.MainBranch,
 			FeaturePrefix: cfg.FeaturePrefix,
@@ -99,7 +115,7 @@ var configEditCmd = &cobra.Command{
 			return err
 		}
 
-		partial := result.ToPartialConfig()
+		partial := buildRepoConfigForEdit(inherited, repo, result)
 		if err := config.WritePartialConfig(path, partial); err != nil {
 			return err
 		}
@@ -115,58 +131,117 @@ var configCmd = &cobra.Command{
 	Short: "Show effective configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		u := newUI()
-		cfg := loadConfig()
+		repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
 
 		// Load individual layers to show source
-		var global *config.PartialConfig
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			u.Muted(fmt.Sprintf("Could not determine home directory: %s", err))
-		} else {
-			globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
-			var globalErr error
-			global, globalErr = config.LoadFromFile(globalPath)
-			if globalErr != nil {
-				u.Muted(fmt.Sprintf("Could not load global config: %s", globalErr))
-			}
+		global, globalErr := loadGlobalConfig()
+		if globalErr != nil {
+			u.Muted(fmt.Sprintf("Could not load global config: %s", globalErr))
 		}
-		repo, repoErr := config.LoadFromFile(".sfconfig.yml")
+		repo, repoErr := config.LoadFromFile(repoPath)
 		if repoErr != nil {
 			u.Muted(fmt.Sprintf("Could not load repo config: %s", repoErr))
 		}
+		cfg := config.Merge(config.Defaults(), global, repo)
 
 		u.Blank()
-		printConfigField(u, "main_branch", cfg.MainBranch, "main", global, repo,
+		printConfigField(u, "main_branch", cfg.MainBranch, global, repo,
 			func(c *config.PartialConfig) string { return c.MainBranch })
-		printConfigField(u, "tag_prefix", cfg.TagPrefix, "v", global, repo,
+		printConfigField(u, "tag_prefix", cfg.TagPrefix, global, repo,
 			func(c *config.PartialConfig) string { return c.TagPrefix })
-		printConfigField(u, "feature_prefix", cfg.FeaturePrefix, "feature/", global, repo,
+		printConfigField(u, "feature_prefix", cfg.FeaturePrefix, global, repo,
 			func(c *config.PartialConfig) string { return c.FeaturePrefix })
-		printConfigField(u, "hotfix_prefix", cfg.HotfixPrefix, "hotfix/", global, repo,
+		printConfigField(u, "hotfix_prefix", cfg.HotfixPrefix, global, repo,
 			func(c *config.PartialConfig) string { return c.HotfixPrefix })
-		printConfigField(u, "merge_strategy", cfg.MergeStrategy, "squash", global, repo,
+		printConfigField(u, "merge_strategy", cfg.MergeStrategy, global, repo,
 			func(c *config.PartialConfig) string { return c.MergeStrategy })
-		printConfigField(u, "default_release_bump", cfg.DefaultReleaseBump, "minor", global, repo,
+		printConfigField(u, "default_release_bump", cfg.DefaultReleaseBump, global, repo,
 			func(c *config.PartialConfig) string { return c.DefaultReleaseBump })
-		_, _ = fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", "draft_pr_on_start", cfg.DraftPROnStart, "(default)")
-		_, _ = fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", "hotfix_auto_release", cfg.HotfixAutoRelease, "(default)")
+		printConfigBoolField(u, "draft_pr_on_start", cfg.DraftPROnStart, global, repo,
+			func(c *config.PartialConfig) *bool { return c.DraftPROnStart })
+		printConfigBoolField(u, "hotfix_auto_release", cfg.HotfixAutoRelease, global, repo,
+			func(c *config.PartialConfig) *bool { return c.HotfixAutoRelease })
 		u.Blank()
 
 		return nil
 	},
 }
 
-// printConfigField displays a single config field with its value and source
-// (default, global, or repo), determined by checking each config layer.
-func printConfigField(u *ui.UI, name, value, defaultVal string,
-	global, repo *config.PartialConfig, getter func(*config.PartialConfig) string) {
-	source := "(default)"
-	if repo != nil && getter(repo) != "" {
-		source = "(repo: .sfconfig.yml)"
-	} else if global != nil && getter(global) != "" {
-		source = "(global: ~/.config/git-sf/config.yml)"
+func loadGlobalConfig() (*config.PartialConfig, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
 	}
+	globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
+	return config.LoadFromFile(globalPath)
+}
+
+// buildRepoConfigForEdit preserves untouched repo-only fields and stores edited
+// fields as minimal overrides against the inherited defaults+global config.
+func buildRepoConfigForEdit(inherited config.Config, existing *config.PartialConfig, result ui.InitFormResult) config.PartialConfig {
+	var updated config.PartialConfig
+	if existing != nil {
+		updated = *existing
+	}
+
+	updated.MainBranch = repoStringOverride(result.MainBranch, inherited.MainBranch)
+	updated.FeaturePrefix = repoStringOverride(result.FeaturePrefix, inherited.FeaturePrefix)
+	updated.HotfixPrefix = repoStringOverride(result.HotfixPrefix, inherited.HotfixPrefix)
+	updated.TagPrefix = repoStringOverride(result.TagPrefix, inherited.TagPrefix)
+	updated.DraftPROnStart = repoBoolOverride(result.DraftPR, inherited.DraftPROnStart)
+
+	return updated
+}
+
+func repoStringOverride(value, inherited string) string {
+	if value == inherited {
+		return ""
+	}
+	return value
+}
+
+func repoBoolOverride(value, inherited bool) *bool {
+	if value == inherited {
+		return nil
+	}
+	updated := value
+	return &updated
+}
+
+// printConfigField displays a single string config field with source
+// attribution based on repo, global, and default layers.
+func printConfigField(u *ui.UI, name, value string,
+	global, repo *config.PartialConfig, getter func(*config.PartialConfig) string) {
+	source := configFieldSource(global, repo, getter)
 	_, _ = fmt.Fprintf(u.Out, "  %-25s %-15s %s\n", name, value, source)
+}
+
+// printConfigBoolField displays a single boolean config field with source
+// attribution based on repo, global, and default layers.
+func printConfigBoolField(u *ui.UI, name string, value bool,
+	global, repo *config.PartialConfig, getter func(*config.PartialConfig) *bool) {
+	source := configBoolSource(global, repo, getter)
+	_, _ = fmt.Fprintf(u.Out, "  %-25s %-15v %s\n", name, value, source)
+}
+
+func configFieldSource(global, repo *config.PartialConfig, getter func(*config.PartialConfig) string) string {
+	if repo != nil && getter(repo) != "" {
+		return repoConfigSource
+	}
+	if global != nil && getter(global) != "" {
+		return globalConfigSource
+	}
+	return defaultConfigSource
+}
+
+func configBoolSource(global, repo *config.PartialConfig, getter func(*config.PartialConfig) *bool) string {
+	if repo != nil && getter(repo) != nil {
+		return repoConfigSource
+	}
+	if global != nil && getter(global) != nil {
+		return globalConfigSource
+	}
+	return defaultConfigSource
 }
 
 func init() {

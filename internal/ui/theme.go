@@ -15,11 +15,13 @@ type Theme struct {
 	Muted   lipgloss.Style
 	DryRun  lipgloss.Style
 
-	// Step icons
+	// Icons
 	IconDone    string
 	IconFail    string
 	IconPending string
 	IconConfirm string
+	IconWarning string
+	IconInfo    string
 
 	// Panel styling
 	Border lipgloss.Style
@@ -39,6 +41,8 @@ func DefaultTheme() Theme {
 		IconFail:    "✗",
 		IconPending: "○",
 		IconConfirm: "?",
+		IconWarning: "!",
+		IconInfo:    "●",
 
 		Border: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

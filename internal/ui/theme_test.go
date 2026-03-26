@@ -34,6 +34,8 @@ func TestThemeIconsAreDefined(t *testing.T) {
 		"Fail":    theme.IconFail,
 		"Pending": theme.IconPending,
 		"Confirm": theme.IconConfirm,
+		"Warning": theme.IconWarning,
+		"Info":    theme.IconInfo,
 	}
 	for name, icon := range icons {
 		if icon == "" {
