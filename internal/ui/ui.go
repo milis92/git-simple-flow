@@ -22,11 +22,13 @@ var (
 type UI struct {
 	// Out is the writer for all UI output. Defaults to os.Stdout.
 	Out io.Writer
+	// In is the reader for user input. Defaults to os.Stdin.
+	In io.Reader
 }
 
-// New creates a UI that writes to stdout.
+// New creates a UI that writes to stdout and reads from stdin.
 func New() *UI {
-	return &UI{Out: os.Stdout}
+	return &UI{Out: os.Stdout, In: os.Stdin}
 }
 
 // Success prints a message with a green checkmark prefix.
@@ -79,7 +81,7 @@ func (u *UI) Result(msg string) {
 func (u *UI) Confirm(msg string) (bool, error) {
 	_, _ = fmt.Fprintf(u.Out, "  %s [y/N] ", msg)
 	var response string
-	_, err := fmt.Fscanln(os.Stdin, &response)
+	_, err := fmt.Fscanln(u.In, &response)
 	if err != nil {
 		return false, nil
 	}
