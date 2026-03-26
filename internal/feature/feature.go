@@ -222,8 +222,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 	err := ui.RunProgress("git sf feature finish", branch, defs, func(cb ui.StepCallbacks) error {
 		// Step 0: Find PR
 		cb.Start()
-		pr, err := s.GH.GetCurrentPR()
-		if err != nil {
+		if _, err := s.GH.GetCurrentPR(); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -285,10 +284,12 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Step 6: Delete remote branch (soft fail)
 		cb.Start()
-		_ = s.Git.DeleteRemoteBranch(branch)
-		cb.Done()
+		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+			cb.Fail("already deleted or could not be removed")
+		} else {
+			cb.Done()
+		}
 
-		_ = pr
 		return nil
 	})
 	if err != nil {
@@ -404,14 +405,17 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 	}
 
 	err := ui.RunProgress("git sf feature discard", branch, defs, func(cb ui.StepCallbacks) error {
-		// Step 0: Close PR (soft fail)
+		// Step 0: Close PR (soft fail — PR may not exist)
 		cb.Start()
-		if ghErr := gh.CheckGHInstalled(); ghErr == nil {
-			if authErr := s.GH.CheckAuthenticated(); authErr == nil {
-				_ = s.GH.ClosePR(reason) // soft fail — PR may not exist
-			}
+		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
+			cb.Fail("gh CLI not available — skipped")
+		} else if authErr := s.GH.CheckAuthenticated(); authErr != nil {
+			cb.Fail("not authenticated — skipped")
+		} else if err := s.GH.ClosePR(reason); err != nil {
+			cb.Fail("no PR to close or already closed")
+		} else {
+			cb.Done()
 		}
-		cb.Done()
 
 		// Step 1: Switch to main
 		cb.Start()
@@ -431,8 +435,11 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()
-		_ = s.Git.DeleteRemoteBranch(branch)
-		cb.Done()
+		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+			cb.Fail("already deleted or could not be removed")
+		} else {
+			cb.Done()
+		}
 
 		return nil
 	})

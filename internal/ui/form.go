@@ -1,9 +1,22 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/charmbracelet/huh"
 	"github.com/milis92/git-simple-flow/internal/config"
 )
+
+// validateNonEmpty returns a huh validation function that rejects blank input.
+func validateNonEmpty(field string) func(string) error {
+	return func(s string) error {
+		if strings.TrimSpace(s) == "" {
+			return fmt.Errorf("%s cannot be empty", field)
+		}
+		return nil
+	}
+}
 
 // InitFormResult holds values collected by the init wizard.
 type InitFormResult struct {
@@ -69,16 +82,19 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Feature branch prefix").
-				Value(&result.FeaturePrefix),
+				Value(&result.FeaturePrefix).
+				Validate(validateNonEmpty("feature prefix")),
 			huh.NewInput().
 				Title("Hotfix branch prefix").
-				Value(&result.HotfixPrefix),
+				Value(&result.HotfixPrefix).
+				Validate(validateNonEmpty("hotfix prefix")),
 		).Title("Branches").Description("2/3"),
 
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Tag prefix").
-				Value(&result.TagPrefix),
+				Value(&result.TagPrefix).
+				Validate(validateNonEmpty("tag prefix")),
 			huh.NewConfirm().
 				Title("Create draft PR on branch start?").
 				Value(&result.DraftPR),
@@ -106,7 +122,8 @@ func RunTitlePrompt(defaultTitle string, includeBody bool) (InputPromptResult, e
 	fields := []huh.Field{
 		huh.NewInput().
 			Title("PR title").
-			Value(&result.Title),
+			Value(&result.Title).
+			Validate(validateNonEmpty("PR title")),
 	}
 	if includeBody {
 		fields = append(fields,

@@ -214,49 +214,39 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(StepCallb
 
 	errCh := make(chan error, 1)
 
+	// safeSend sends a message to the Bubble Tea program, ignoring panics
+	// from a program that has already quit (e.g. user pressed Ctrl+C).
+	safeSend := func(msg tea.Msg) {
+		defer func() { _ = recover() }()
+		p.Send(msg)
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				p.Send(StepFailedMsg{Err: fmt.Sprintf("panic: %v", r)})
-				p.Send(WorkflowDone{})
+				safeSend(StepFailedMsg{Err: fmt.Sprintf("panic: %v", r)})
+				safeSend(WorkflowDone{})
 				errCh <- fmt.Errorf("workflow panicked: %v", r)
 			}
 		}()
 		cb := StepCallbacks{
-			Start: func() { p.Send(StepStartMsg{}) },
-			Done:  func() { p.Send(StepDoneMsg{}) },
-			Fail:  func(err string) { p.Send(StepFailedMsg{Err: err}) },
+			Start: func() { safeSend(StepStartMsg{}) },
+			Done:  func() { safeSend(StepDoneMsg{}) },
+			Fail:  func(err string) { safeSend(StepFailedMsg{Err: err}) },
 		}
 		errCh <- workflow(cb)
-		p.Send(WorkflowDone{})
+		safeSend(WorkflowDone{})
 	}()
 
-	_, err := p.Run()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		return err
 	}
 
-	return <-errCh
-}
-
-// RunProgressPrint runs a workflow with print-style step output instead of
-// a Bubble Tea TUI. Used when interactive mode is disabled.
-func RunProgressPrint(u *UI, defs []StepDef, workflow func(StepCallbacks) error) error {
-	current := -1
-	cb := StepCallbacks{
-		Start: func() {
-			current++
-		},
-		Done: func() {
-			if current >= 0 && current < len(defs) {
-				u.Success(defs[current].Label)
-			}
-		},
-		Fail: func(err string) {
-			if current >= 0 && current < len(defs) {
-				u.Error(defs[current].Label + " — " + err)
-			}
-		},
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		// Bubble Tea quit before the workflow finished (e.g. Ctrl+C).
+		return fmt.Errorf("interrupted")
 	}
-	return workflow(cb)
 }

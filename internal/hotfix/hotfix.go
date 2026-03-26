@@ -214,10 +214,9 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 	err := ui.RunProgress("git sf hotfix finish", branch, defs, func(cb ui.StepCallbacks) error {
 		// Step: Find PR
 		cb.Start()
-		pr, err := s.GH.GetCurrentPR()
-		if err != nil {
-			cb.Fail("no PR found — run 'git sf hotfix publish' first")
-			return fmt.Errorf("no PR found — run 'git sf hotfix publish' first")
+		if _, err := s.GH.GetCurrentPR(); err != nil {
+			cb.Fail(err.Error())
+			return err
 		}
 		cb.Done()
 
@@ -277,10 +276,13 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 		cb.Done()
 
-		// Step: Delete remote branch (soft — always call cb.Done())
+		// Step: Delete remote branch (soft fail)
 		cb.Start()
-		_ = s.Git.DeleteRemoteBranch(branch)
-		cb.Done()
+		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+			cb.Fail("already deleted or could not be removed")
+		} else {
+			cb.Done()
+		}
 
 		// Optional release steps
 		if opts.Release || s.Config.HotfixAutoRelease {
@@ -313,7 +315,6 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			cb.Done()
 		}
 
-		_ = pr
 		return nil
 	})
 	if err != nil {
@@ -458,14 +459,17 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 	}
 
 	err := ui.RunProgress("git sf hotfix discard", branch, defs, func(cb ui.StepCallbacks) error {
-		// Step 0: Close PR (soft fail)
+		// Step 0: Close PR (soft fail — PR may not exist)
 		cb.Start()
-		if ghErr := gh.CheckGHInstalled(); ghErr == nil {
-			if authErr := s.GH.CheckAuthenticated(); authErr == nil {
-				_ = s.GH.ClosePR(reason)
-			}
+		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
+			cb.Fail("gh CLI not available — skipped")
+		} else if authErr := s.GH.CheckAuthenticated(); authErr != nil {
+			cb.Fail("not authenticated — skipped")
+		} else if err := s.GH.ClosePR(reason); err != nil {
+			cb.Fail("no PR to close or already closed")
+		} else {
+			cb.Done()
 		}
-		cb.Done()
 
 		// Step 1: Switch to main
 		cb.Start()
@@ -485,8 +489,11 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()
-		_ = s.Git.DeleteRemoteBranch(branch)
-		cb.Done()
+		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+			cb.Fail("already deleted or could not be removed")
+		} else {
+			cb.Done()
+		}
 
 		return nil
 	})

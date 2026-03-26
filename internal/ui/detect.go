@@ -12,8 +12,7 @@ func IsTerminal(f *os.File) bool {
 }
 
 // ShouldInteract returns true if interactive UI should be used.
-// It returns false if noInteractive is explicitly set, or if stdin/stdout
-// are not terminals.
+// It returns false when noInteractive is true, or when isTTY is false.
 func ShouldInteract(isTTY, noInteractive bool) bool {
 	if noInteractive {
 		return false

@@ -27,8 +27,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
-		if ui.ShouldInteract(isTTY, noInteractive) {
+		if u.Interactive {
 			defaults := ui.InitFormResultFromDefaults(config.Defaults())
 
 			// Detect existing branches for the selector
@@ -75,8 +74,7 @@ var configEditCmd = &cobra.Command{
 		u := newUI()
 		path := filepath.Join(repoRoot(), ".sfconfig.yml")
 
-		isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
-		if !ui.ShouldInteract(isTTY, noInteractive) {
+		if !u.Interactive {
 			return fmt.Errorf("config edit requires an interactive terminal (remove --no-interactive or edit .sfconfig.yml directly)")
 		}
 
@@ -102,7 +100,7 @@ var configEditCmd = &cobra.Command{
 		}
 
 		partial := result.ToPartialConfig()
-		merged := config.Merge(config.Defaults(), &partial)
+		merged := config.Merge(cfg, &partial)
 		if err := config.WriteConfig(path, merged); err != nil {
 			return err
 		}
