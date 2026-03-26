@@ -44,13 +44,14 @@ type (
 
 // ProgressModel is the Bubble Tea model for multi-step workflow progress.
 type ProgressModel struct {
-	title    string
-	subtitle string
-	steps    []step
-	current  int
-	done     bool
-	spinner  spinner.Model
-	theme    Theme
+	title       string
+	subtitle    string
+	steps       []step
+	current     int
+	done        bool
+	overflowErr string
+	spinner     spinner.Model
+	theme       Theme
 }
 
 // NewProgressModel creates a new progress model for the given workflow.
@@ -89,6 +90,8 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.current < len(m.steps) {
 			m.steps[m.current].status = StepActive
 			m.steps[m.current].startedAt = time.Now()
+		} else {
+			m.overflowErr = fmt.Sprintf("workflow sent more steps (%d) than defined (%d)", m.current+1, len(m.steps))
 		}
 		return m, nil
 
@@ -173,6 +176,10 @@ func (m ProgressModel) View() string {
 		if s.status == StepFailed && s.errMsg != "" {
 			b.WriteString("    " + m.theme.Error.Render(s.errMsg) + "\n")
 		}
+	}
+
+	if m.overflowErr != "" {
+		b.WriteString("\n" + m.theme.Error.Render("BUG: "+m.overflowErr) + "\n")
 	}
 
 	// Wrap in border

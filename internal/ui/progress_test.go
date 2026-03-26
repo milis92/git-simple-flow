@@ -112,3 +112,22 @@ func TestStepCallbacksType(t *testing.T) {
 		t.Errorf("failedMsg = %q, want %q", failedMsg, "something broke")
 	}
 }
+
+func TestProgressModelStepOverflow(t *testing.T) {
+	steps := []StepDef{{Label: "Only step"}}
+	m := NewProgressModel("Test", "branch", steps)
+
+	// Start and complete the only step
+	updated, _ := m.Update(StepStartMsg{})
+	m = updated.(ProgressModel)
+	updated, _ = m.Update(StepDoneMsg{})
+	m = updated.(ProgressModel)
+
+	// One more StepStart than steps defined — should set overflow error
+	updated, _ = m.Update(StepStartMsg{})
+	m = updated.(ProgressModel)
+
+	if m.overflowErr == "" {
+		t.Error("expected overflowErr to be set when steps exceed definitions")
+	}
+}
