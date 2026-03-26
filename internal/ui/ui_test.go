@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestUIUsesThemeStyles(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:   &buf,
+		In:    strings.NewReader(""),
+		theme: DefaultTheme(),
+	}
+
+	u.Success("ok")
+	output := buf.String()
+	if !strings.Contains(output, "ok") {
+		t.Errorf("Success output missing message, got %q", output)
+	}
+	if !strings.Contains(output, u.theme.IconDone) {
+		t.Errorf("Success output should use theme icon %q, got %q", u.theme.IconDone, output)
+	}
+}
+
 type failingReader struct{}
 
 func (f *failingReader) Read([]byte) (int, error) {
@@ -32,8 +50,9 @@ func TestConfirm(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u := &UI{
-				Out: &bytes.Buffer{},
-				In:  strings.NewReader(tt.input),
+				Out:   &bytes.Buffer{},
+				In:    strings.NewReader(tt.input),
+				theme: DefaultTheme(),
 			}
 			got, err := u.Confirm("Continue?")
 			if (err != nil) != tt.wantErr {
@@ -49,8 +68,9 @@ func TestConfirm(t *testing.T) {
 
 func TestConfirmBrokenReader(t *testing.T) {
 	u := &UI{
-		Out: &bytes.Buffer{},
-		In:  &failingReader{},
+		Out:   &bytes.Buffer{},
+		In:    &failingReader{},
+		theme: DefaultTheme(),
 	}
 	got, err := u.Confirm("Continue?")
 	if got != false {
@@ -64,8 +84,9 @@ func TestConfirmBrokenReader(t *testing.T) {
 func TestConfirmPromptOutput(t *testing.T) {
 	var buf bytes.Buffer
 	u := &UI{
-		Out: &buf,
-		In:  strings.NewReader("n\n"),
+		Out:   &buf,
+		In:    strings.NewReader("n\n"),
+		theme: DefaultTheme(),
 	}
 	_, _ = u.Confirm("Deploy?")
 	if !strings.Contains(buf.String(), "Deploy?") {
@@ -82,6 +103,7 @@ func TestConfirmAutoConfirm(t *testing.T) {
 		Out:         &buf,
 		In:          strings.NewReader(""),
 		AutoConfirm: true,
+		theme:       DefaultTheme(),
 	}
 	got, err := u.Confirm("Deploy?")
 	if err != nil {

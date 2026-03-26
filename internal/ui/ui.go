@@ -7,17 +7,6 @@ import (
 	"io"
 	"os"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-)
-
-var (
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	infoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	mutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	dryRunStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 )
 
 // UI handles styled terminal output. All output methods write to Out.
@@ -30,41 +19,43 @@ type UI struct {
 	Interactive bool
 	// AutoConfirm, when true, skips confirmation prompts and returns true.
 	AutoConfirm bool
+	// theme holds the shared visual styles used by all output methods.
+	theme Theme
 }
 
 // New creates a UI that writes to stdout and reads from stdin.
 func New() *UI {
-	return &UI{Out: os.Stdout, In: os.Stdin}
+	return &UI{Out: os.Stdout, In: os.Stdin, theme: DefaultTheme()}
 }
 
 // Success prints a message with a green checkmark prefix.
 func (u *UI) Success(msg string) {
-	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", successStyle.Render("✓"), msg)
+	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", u.theme.Success.Render(u.theme.IconDone), msg)
 }
 
 // Error prints a message with a red cross prefix.
 func (u *UI) Error(msg string) {
-	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", errorStyle.Render("✗"), msg)
+	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", u.theme.Error.Render(u.theme.IconFail), msg)
 }
 
 // Warning prints a message with a yellow exclamation prefix.
 func (u *UI) Warning(msg string) {
-	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", warnStyle.Render("!"), msg)
+	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", u.theme.Warning.Render(u.theme.IconWarning), msg)
 }
 
 // Info prints a message with a blue bullet prefix.
 func (u *UI) Info(msg string) {
-	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", infoStyle.Render("●"), msg)
+	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", u.theme.Info.Render(u.theme.IconInfo), msg)
 }
 
 // Muted prints a message in dimmed/grey text.
 func (u *UI) Muted(msg string) {
-	_, _ = fmt.Fprintf(u.Out, "  %s\n", mutedStyle.Render(msg))
+	_, _ = fmt.Fprintf(u.Out, "  %s\n", u.theme.Muted.Render(msg))
 }
 
 // DryRun prints a message with a purple "[dry-run]" prefix.
 func (u *UI) DryRun(msg string) {
-	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", dryRunStyle.Render("[dry-run]"), msg)
+	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", u.theme.DryRun.Render("[dry-run]"), msg)
 }
 
 // Blank prints an empty line.
@@ -84,6 +75,7 @@ func (u *UI) Result(msg string) {
 
 // Confirm prints a y/N prompt and reads a single line from stdin.
 // Returns true if the user answers "y", "Y", or "yes".
+// If AutoConfirm is set, returns true immediately without waiting for input.
 func (u *UI) Confirm(msg string) (bool, error) {
 	if u.AutoConfirm {
 		_, _ = fmt.Fprintf(u.Out, "  %s [y/N] y (auto-confirmed)\n", msg)
