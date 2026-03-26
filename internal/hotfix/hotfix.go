@@ -369,22 +369,23 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 
 	if !opts.Force {
 		checks, err := s.GH.GetPRChecks()
-		if err == nil {
-			failing := false
-			for _, c := range checks {
-				switch {
-				case c.Conclusion == "failure":
-					s.UI.Error(c.Name + " — failed")
-					failing = true
-				case c.Status != "completed":
-					s.UI.Warning(c.Name + " — " + c.Status)
-				default:
-					s.UI.Success(c.Name + " — passed")
-				}
+		if err != nil {
+			return fmt.Errorf("could not fetch PR checks: %w", err)
+		}
+		failing := false
+		for _, c := range checks {
+			switch {
+			case c.Conclusion == "failure":
+				s.UI.Error(c.Name + " — failed")
+				failing = true
+			case c.Status != "completed":
+				s.UI.Warning(c.Name + " — " + c.Status)
+			default:
+				s.UI.Success(c.Name + " — passed")
 			}
-			if failing {
-				return fmt.Errorf("PR has failing checks. Fix them or use --force to merge anyway")
-			}
+		}
+		if failing {
+			return fmt.Errorf("PR has failing checks. Fix them or use --force to merge anyway")
 		}
 	}
 
