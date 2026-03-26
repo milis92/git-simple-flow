@@ -8,7 +8,6 @@ import (
 // InitFormResult holds values collected by the init wizard.
 type InitFormResult struct {
 	MainBranch    string
-	Remote        string
 	FeaturePrefix string
 	HotfixPrefix  string
 	TagPrefix     string
@@ -19,7 +18,6 @@ type InitFormResult struct {
 func InitFormResultFromDefaults(cfg config.Config) InitFormResult {
 	return InitFormResult{
 		MainBranch:    cfg.MainBranch,
-		Remote:        "origin",
 		FeaturePrefix: cfg.FeaturePrefix,
 		HotfixPrefix:  cfg.HotfixPrefix,
 		TagPrefix:     cfg.TagPrefix,
@@ -66,9 +64,6 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 				Title("Main branch").
 				Options(branchOptions...).
 				Value(&result.MainBranch),
-			huh.NewInput().
-				Title("Remote").
-				Value(&result.Remote),
 		).Title("Repository").Description("1/3"),
 
 		huh.NewGroup(

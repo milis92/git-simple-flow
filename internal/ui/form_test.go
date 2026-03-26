@@ -12,7 +12,6 @@ func TestInitFormResultToConfig(t *testing.T) {
 		FeaturePrefix: "feat/",
 		HotfixPrefix:  "fix/",
 		TagPrefix:     "v",
-		Remote:        "upstream",
 		DraftPR:       true,
 	}
 

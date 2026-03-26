@@ -17,7 +17,7 @@ var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create .sfconfig.yml with default settings",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u := ui.New()
+		u := newUI()
 		path := filepath.Join(repoRoot(), ".sfconfig.yml")
 		force, _ := cmd.Flags().GetBool("force")
 
@@ -72,7 +72,7 @@ var configEditCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Interactively edit .sfconfig.yml",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u := ui.New()
+		u := newUI()
 		path := filepath.Join(repoRoot(), ".sfconfig.yml")
 
 		isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
@@ -83,7 +83,6 @@ var configEditCmd = &cobra.Command{
 		cfg := loadConfig()
 		defaults := ui.InitFormResult{
 			MainBranch:    cfg.MainBranch,
-			Remote:        "origin",
 			FeaturePrefix: cfg.FeaturePrefix,
 			HotfixPrefix:  cfg.HotfixPrefix,
 			TagPrefix:     cfg.TagPrefix,
