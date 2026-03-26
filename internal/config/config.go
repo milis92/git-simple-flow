@@ -5,8 +5,10 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"strconv"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -145,4 +147,124 @@ func WritePartialConfig(path string, cfg PartialConfig) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// UpdatePartialConfigFile updates known PartialConfig keys in-place while
+// preserving unknown keys and YAML comments in the existing file.
+func UpdatePartialConfigFile(path string, cfg PartialConfig) error {
+	doc, err := loadConfigDocument(path)
+	if err != nil {
+		return err
+	}
+
+	root := doc.Content[0]
+	setStringField(root, "main_branch", cfg.MainBranch)
+	setStringField(root, "tag_prefix", cfg.TagPrefix)
+	setStringField(root, "feature_prefix", cfg.FeaturePrefix)
+	setStringField(root, "hotfix_prefix", cfg.HotfixPrefix)
+	setStringField(root, "merge_strategy", cfg.MergeStrategy)
+	setStringField(root, "default_release_bump", cfg.DefaultReleaseBump)
+	setBoolField(root, "draft_pr_on_start", cfg.DraftPROnStart)
+	setBoolField(root, "hotfix_auto_release", cfg.HotfixAutoRelease)
+
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, out.Bytes(), 0644)
+}
+
+func loadConfigDocument(path string) (*yaml.Node, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return newConfigDocument(), nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return newConfigDocument(), nil
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if doc.Kind == 0 {
+		return newConfigDocument(), nil
+	}
+	if doc.Kind != yaml.DocumentNode {
+		return nil, fmt.Errorf("config file must contain a YAML document")
+	}
+	if len(doc.Content) == 0 {
+		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	if doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("config file must contain a mapping at the top level")
+	}
+
+	return &doc, nil
+}
+
+func newConfigDocument() *yaml.Node {
+	return &yaml.Node{
+		Kind: yaml.DocumentNode,
+		Content: []*yaml.Node{
+			{Kind: yaml.MappingNode, Tag: "!!map"},
+		},
+	}
+}
+
+func setStringField(root *yaml.Node, key, value string) {
+	if value == "" {
+		removeMapEntry(root, key)
+		return
+	}
+	setScalarField(root, key, value, "!!str")
+}
+
+func setBoolField(root *yaml.Node, key string, value *bool) {
+	if value == nil {
+		removeMapEntry(root, key)
+		return
+	}
+	setScalarField(root, key, strconv.FormatBool(*value), "!!bool")
+}
+
+func setScalarField(root *yaml.Node, key, value, tag string) {
+	_, node, idx := mapEntry(root, key)
+	if idx >= 0 {
+		node.Kind = yaml.ScalarNode
+		node.Tag = tag
+		node.Value = value
+		return
+	}
+
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value},
+	)
+}
+
+func removeMapEntry(root *yaml.Node, key string) {
+	_, _, idx := mapEntry(root, key)
+	if idx < 0 {
+		return
+	}
+	root.Content = append(root.Content[:idx], root.Content[idx+2:]...)
+}
+
+func mapEntry(root *yaml.Node, key string) (*yaml.Node, *yaml.Node, int) {
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			return root.Content[i], root.Content[i+1], i
+		}
+	}
+	return nil, nil, -1
 }

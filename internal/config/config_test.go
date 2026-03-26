@@ -233,3 +233,73 @@ func TestWritePartialConfigOnlyWritesSetFields(t *testing.T) {
 		t.Error("hotfix_auto_release should not be written (not set in partial)")
 	}
 }
+
+func TestUpdatePartialConfigFilePreservesUnknownFieldsAndComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initial := strings.Join([]string{
+		"# repo config",
+		"main_branch: main",
+		"# custom extension",
+		"custom_field: keep-me",
+		"merge_strategy: squash",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdatePartialConfigFile(path, PartialConfig{MainBranch: "develop"}); err != nil {
+		t.Fatalf("UpdatePartialConfigFile() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "# repo config") {
+		t.Errorf("expected top-level comment to be preserved, got %q", content)
+	}
+	if !strings.Contains(content, "# custom extension") {
+		t.Errorf("expected unknown-field comment to be preserved, got %q", content)
+	}
+	if !strings.Contains(content, "custom_field: keep-me") {
+		t.Errorf("expected unknown field to be preserved, got %q", content)
+	}
+	if !strings.Contains(content, "main_branch: develop") {
+		t.Errorf("expected known field to be updated, got %q", content)
+	}
+	if strings.Contains(content, "merge_strategy:") {
+		t.Errorf("expected cleared known field to be removed, got %q", content)
+	}
+}
+
+func TestUpdatePartialConfigFileCreatesMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	draftPR := false
+
+	if err := UpdatePartialConfigFile(path, PartialConfig{
+		MainBranch:     "develop",
+		DraftPROnStart: &draftPR,
+	}); err != nil {
+		t.Fatalf("UpdatePartialConfigFile() error = %v", err)
+	}
+
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile() error = %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadFromFile() returned nil")
+	}
+	if loaded.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", loaded.MainBranch, "develop")
+	}
+	if loaded.DraftPROnStart == nil || *loaded.DraftPROnStart {
+		t.Fatalf("DraftPROnStart = %v, want explicit false pointer", loaded.DraftPROnStart)
+	}
+}

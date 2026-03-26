@@ -159,6 +159,80 @@ func TestBuildRepoConfigForEditPreservesRepoOverridesWhenStillSelected(t *testin
 	}
 }
 
+func TestBuildRepoConfigForEditPreservesExplicitRepoPinsEqualToInherited(t *testing.T) {
+	inherited := config.Config{
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPROnStart:     false,
+		HotfixAutoRelease:  false,
+	}
+	existing := &config.PartialConfig{
+		MergeStrategy:  "squash",
+		DraftPROnStart: boolPtr(false),
+	}
+
+	result := ui.InitFormResult{
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPR:            false,
+		HotfixAutoRelease:  false,
+	}
+
+	updated := buildRepoConfigForEdit(inherited, existing, result)
+
+	if updated.MergeStrategy != "squash" {
+		t.Errorf("MergeStrategy = %q, want %q to preserve explicit repo pin", updated.MergeStrategy, "squash")
+	}
+	if updated.DraftPROnStart == nil || *updated.DraftPROnStart {
+		t.Fatalf("DraftPROnStart = %v, want explicit false pointer to preserve repo pin", updated.DraftPROnStart)
+	}
+}
+
+func TestBuildRepoConfigForEditClearsOverrideWhenChangedBackToInherited(t *testing.T) {
+	inherited := config.Config{
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPROnStart:     false,
+		HotfixAutoRelease:  false,
+	}
+	existing := &config.PartialConfig{
+		MergeStrategy:  "rebase",
+		DraftPROnStart: boolPtr(true),
+	}
+
+	result := ui.InitFormResult{
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPR:            false,
+		HotfixAutoRelease:  false,
+	}
+
+	updated := buildRepoConfigForEdit(inherited, existing, result)
+
+	if updated.MergeStrategy != "" {
+		t.Errorf("MergeStrategy = %q, want empty to clear repo override", updated.MergeStrategy)
+	}
+	if updated.DraftPROnStart != nil {
+		t.Fatalf("DraftPROnStart = %v, want nil to clear repo override", *updated.DraftPROnStart)
+	}
+}
+
 func TestConfigBoolSource(t *testing.T) {
 	repo := &config.PartialConfig{DraftPROnStart: boolPtr(false)}
 	global := &config.PartialConfig{DraftPROnStart: boolPtr(true)}

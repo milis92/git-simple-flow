@@ -119,7 +119,7 @@ var configEditCmd = &cobra.Command{
 		}
 
 		partial := buildRepoConfigForEdit(inherited, repo, result)
-		if err := config.WritePartialConfig(path, partial); err != nil {
+		if err := config.UpdatePartialConfigFile(path, partial); err != nil {
 			return err
 		}
 
@@ -181,37 +181,46 @@ func loadGlobalConfig() (*config.PartialConfig, error) {
 
 // buildRepoConfigForEdit preserves untouched repo-only fields and stores edited
 // fields as minimal overrides against the inherited defaults+global config.
+// Existing repo overrides that currently match inherited values are preserved so
+// config edit does not silently unpin them.
 func buildRepoConfigForEdit(inherited config.Config, existing *config.PartialConfig, result ui.InitFormResult) config.PartialConfig {
 	var updated config.PartialConfig
 	if existing != nil {
 		updated = *existing
 	}
 
-	updated.MainBranch = repoStringOverride(result.MainBranch, inherited.MainBranch)
-	updated.FeaturePrefix = repoStringOverride(result.FeaturePrefix, inherited.FeaturePrefix)
-	updated.HotfixPrefix = repoStringOverride(result.HotfixPrefix, inherited.HotfixPrefix)
-	updated.TagPrefix = repoStringOverride(result.TagPrefix, inherited.TagPrefix)
-	updated.MergeStrategy = repoStringOverride(result.MergeStrategy, inherited.MergeStrategy)
-	updated.DefaultReleaseBump = repoStringOverride(result.DefaultReleaseBump, inherited.DefaultReleaseBump)
-	updated.DraftPROnStart = repoBoolOverride(result.DraftPR, inherited.DraftPROnStart)
-	updated.HotfixAutoRelease = repoBoolOverride(result.HotfixAutoRelease, inherited.HotfixAutoRelease)
+	updated.MainBranch = repoStringOverride(result.MainBranch, inherited.MainBranch, updated.MainBranch)
+	updated.FeaturePrefix = repoStringOverride(result.FeaturePrefix, inherited.FeaturePrefix, updated.FeaturePrefix)
+	updated.HotfixPrefix = repoStringOverride(result.HotfixPrefix, inherited.HotfixPrefix, updated.HotfixPrefix)
+	updated.TagPrefix = repoStringOverride(result.TagPrefix, inherited.TagPrefix, updated.TagPrefix)
+	updated.MergeStrategy = repoStringOverride(result.MergeStrategy, inherited.MergeStrategy, updated.MergeStrategy)
+	updated.DefaultReleaseBump = repoStringOverride(result.DefaultReleaseBump, inherited.DefaultReleaseBump, updated.DefaultReleaseBump)
+	updated.DraftPROnStart = repoBoolOverride(result.DraftPR, inherited.DraftPROnStart, updated.DraftPROnStart)
+	updated.HotfixAutoRelease = repoBoolOverride(result.HotfixAutoRelease, inherited.HotfixAutoRelease, updated.HotfixAutoRelease)
 
 	return updated
 }
 
-func repoStringOverride(value, inherited string) string {
-	if value == inherited {
-		return ""
+func repoStringOverride(value, inherited, existing string) string {
+	if value != inherited {
+		return value
 	}
-	return value
+	if existing != "" && existing == value {
+		return value
+	}
+	return ""
 }
 
-func repoBoolOverride(value, inherited bool) *bool {
-	if value == inherited {
-		return nil
+func repoBoolOverride(value, inherited bool, existing *bool) *bool {
+	if value != inherited {
+		updated := value
+		return &updated
 	}
-	updated := value
-	return &updated
+	if existing != nil && *existing == value {
+		preserved := value
+		return &preserved
+	}
+	return nil
 }
 
 // printConfigField displays a single string config field with source
