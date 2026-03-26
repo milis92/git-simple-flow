@@ -1,9 +1,13 @@
 # Simple Flow
 
-Simple Flow is a Git branching model that sits between [Git Flow](https://nvie.com/posts/a-successful-git-branching-model/) and [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow). 
+[README](../README.md) · [Installation](installation.md)
+
+Simple Flow is a Git branching model that sits between [Git Flow](https://nvie.com/posts/a-successful-git-branching-model/) and [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow).
 It keeps the single-trunk simplicity of GitHub Flow but adds structured hotfix paths that Git Flow provides — without the ceremony of
-release branches, develop branches, or feature flags. 
-Feature branches with semver versioning built in: start from `main`, merge back to `main`, tag a release when you are ready.
+release branches, develop branches, or feature flags.
+You work on feature branches, merge back to `main`, and tag a release when you are ready — with semver versioning built in.
+
+**Contents:** [Visual Overview](#visual-overview) · [Core Principles](#core-principles) · [Workflows](#workflows) · [Comparison](#how-simple-flow-compares) · [Deployment Strategy](#deployment-strategy) · [Edge Cases](#edge-cases) · [When to Use Something Else](#when-to-use-something-else)
 
 ## Visual Overview
 
@@ -25,7 +29,7 @@ and get their own patch tag. There are no long-lived branches other than `main`.
 - **`main` is latest, tags are stable** — The tip of `main` always contains the newest work — think of it as a rolling
   "latest" channel. Tags mark the points you have explicitly blessed as stable. This separation lets you deploy and test
   from `main` without affecting users on the tagged release.
-- **No feature flags needed** — Branches can live for days or weeks. Ship when the feature is ready, not when the deploy
+- **No feature flags required** — Branches can live for days or weeks, so you ship when the feature is ready, not when the deploy
   pipeline demands it.
 
 ## Workflows
@@ -36,13 +40,14 @@ and get their own patch tag. There are no long-lived branches other than `main`.
   <img alt="Feature workflow — start, work, finish, optional release" src="simple-flow-feature.svg" width="600">
 </p>
 
-#### Steps
-
 1. **Start the branch.** This creates `feature/my-feature` from the tip of `main` and switches to it.
 
    ```bash
    git sf feature start my-feature
    ```
+
+   > [!TIP]
+   > Pass `--draft-pr` (or enable [`draft_pr_on_start`](../README.md#configuration) in config) to push and open a draft PR in one step.
 
 2. **Work and commit as normal.** Nothing special here — use your usual git workflow.
 
@@ -72,6 +77,8 @@ and get their own patch tag. There are no long-lived branches other than `main`.
 
 > [!TIP]
 > **Changed your mind?** Run `git sf feature discard` to close the PR, delete the branch, and switch back to `main`.
+>
+> **Check your progress** at any time with `git sf status` to see your branch, PR, and CI state.
 
 > [!IMPORTANT]
 > **On branch lifetime:** Feature branches can live for days or weeks. Unlike GitHub Flow, there is no pressure to merge
@@ -84,14 +91,15 @@ and get their own patch tag. There are no long-lived branches other than `main`.
   <img alt="Hotfix workflow — branch from tag, fix, finish with patch release" src="simple-flow-hotfix.svg" width="600">
 </p>
 
-#### Steps
-
 1. **Start the hotfix.** This branches from the latest release tag — not from the tip of `main`. The branch contains
    only released code.
 
    ```bash
    git sf hotfix start crash-fix
    ```
+
+   > [!TIP]
+   > Pass `--draft-pr` (or enable [`draft_pr_on_start`](../README.md#configuration) in config) to push and open a draft PR in one step.
 
 2. **Fix and commit.**
 
@@ -107,6 +115,7 @@ and get their own patch tag. There are no long-lived branches other than `main`.
    ```
 
 4. **Finish with a release.** Merges the PR, switches to `main`, deletes the branch, and auto-tags a patch release.
+   The `--release` flag (or [`hotfix_auto_release`](../README.md#configuration) in config) handles the patch bump automatically.
 
    ```bash
    git sf hotfix finish --release
@@ -114,6 +123,8 @@ and get their own patch tag. There are no long-lived branches other than `main`.
 
 > [!TIP]
 > **Changed your mind?** Run `git sf hotfix discard` to close the PR, delete the branch, and switch back to `main`.
+>
+> **Check your progress** at any time with `git sf status` to see your branch, PR, and CI state.
 
 > [!IMPORTANT]
 > **Key point:** The hotfix branches from the *tag*, not from `main`. This guarantees the hotfix contains only released
@@ -127,28 +138,20 @@ and get their own patch tag. There are no long-lived branches other than `main`.
 
 A release is not a branch. It is a point-in-time snapshot of `main` captured as a git tag.
 
-#### Steps
-
-1. **Ensure `main` is up to date.**
-
-   ```bash
-   git checkout main
-   git pull
-   ```
-
-2. **Tag the release.** Specify the semver bump level: `major`, `minor`, or `patch`. `git sf` finds the latest tag,
-   increments the appropriate segment, and creates the new tag.
+1. **Tag the release.** Specify the semver bump level: `major`, `minor`, or `patch`. `git sf` verifies that your local
+   `main` is in sync with origin, finds the latest tag, increments the appropriate segment, and creates the new tag.
 
    ```bash
    git sf release minor
    ```
 
-3. **Confirm when prompted.** The tool shows the version bump (e.g., `v1.2.0 -> v1.3.0`) and asks for confirmation.
+2. **Confirm when prompted.** The tool shows the version bump (e.g., `v1.2.0 -> v1.3.0`) and asks for confirmation.
 
-4. **Tag is pushed to origin.** This triggers whatever CI/CD pipeline you have wired to tag events (GoReleaser, GitHub
+3. **Tag is pushed to origin.** This triggers whatever CI/CD pipeline you have wired to tag events (GoReleaser, GitHub
    Actions, etc.).
 
-> **Note:** There are no release branches. If a release needs a fix after the fact, that is a hotfix — branch from the
+> [!NOTE]
+> There are no release branches. If a release needs a fix after the fact, that is a hotfix — branch from the
 > tag, fix it, and cut a patch release.
 
 ## How Simple Flow Compares
@@ -263,9 +266,9 @@ git merge main
 
 ### Hotfix needs unreleased feature code
 
-It should not. Always branch from the tag. If the fix genuinely depends on work that has not been released yet, the
-right move is to merge that work into `main` first, cut a new release from `main`, and skip the hotfix workflow
-entirely.
+This scenario indicates a workflow issue. Hotfixes should always branch from the tag. If the fix genuinely depends on
+work that has not been released yet, the right move is to merge that work into `main` first, cut a new release from
+`main`, and skip the hotfix workflow entirely.
 
 ## When to Use Something Else
 
@@ -282,3 +285,11 @@ entirely.
 4. **Feature flags required by policy** — If your organization mandates feature flags for every change, the branching
    model adds no value over GitHub Flow. The whole point of longer-lived branches in Simple Flow is to avoid flags — if
    you must use flags anyway, take the simpler model.
+
+---
+
+<div align="center">
+
+[README](../README.md) · [Installation](installation.md) · [Contributing](../CONTRIBUTING.md)
+
+</div>

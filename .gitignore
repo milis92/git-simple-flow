@@ -4,3 +4,5 @@ coverage.out
 .idea/
 .claude/hooks/post-tool-call.py
 .claude/worktrees/
+.worktrees/
+.hotswan/
