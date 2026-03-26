@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -190,5 +191,45 @@ func TestWriteConfigRoundTrip(t *testing.T) {
 	}
 	if loaded.HotfixAutoRelease == nil || !*loaded.HotfixAutoRelease {
 		t.Error("HotfixAutoRelease should be true")
+	}
+}
+
+func TestWritePartialConfigOnlyWritesSetFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	draftPR := true
+	partial := PartialConfig{
+		MainBranch:     "develop",
+		FeaturePrefix:  "feat/",
+		HotfixPrefix:   "fix/",
+		TagPrefix:      "rel-",
+		DraftPROnStart: &draftPR,
+	}
+
+	if err := WritePartialConfig(path, partial); err != nil {
+		t.Fatalf("WritePartialConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "main_branch") {
+		t.Error("expected main_branch in output")
+	}
+	if !strings.Contains(content, "feature_prefix") {
+		t.Error("expected feature_prefix in output")
+	}
+	if strings.Contains(content, "merge_strategy") {
+		t.Error("merge_strategy should not be written (not set in partial)")
+	}
+	if strings.Contains(content, "default_release_bump") {
+		t.Error("default_release_bump should not be written (not set in partial)")
+	}
+	if strings.Contains(content, "hotfix_auto_release") {
+		t.Error("hotfix_auto_release should not be written (not set in partial)")
 	}
 }

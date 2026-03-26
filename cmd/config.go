@@ -45,8 +45,7 @@ var initCmd = &cobra.Command{
 			}
 
 			partial := result.ToPartialConfig()
-			cfg := config.Merge(config.Defaults(), &partial)
-			if err := config.WriteConfig(path, cfg); err != nil {
+			if err := config.WritePartialConfig(path, partial); err != nil {
 				return err
 			}
 		} else {
@@ -101,8 +100,7 @@ var configEditCmd = &cobra.Command{
 		}
 
 		partial := result.ToPartialConfig()
-		merged := config.Merge(cfg, &partial)
-		if err := config.WriteConfig(path, merged); err != nil {
+		if err := config.WritePartialConfig(path, partial); err != nil {
 			return err
 		}
 

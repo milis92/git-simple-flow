@@ -27,14 +27,14 @@ type Config struct {
 // or repo). String fields use zero values to indicate "not set". Bool fields
 // use pointers so that nil (not set) is distinguishable from false.
 type PartialConfig struct {
-	MainBranch         string `yaml:"main_branch"`
-	TagPrefix          string `yaml:"tag_prefix"`
-	FeaturePrefix      string `yaml:"feature_prefix"`
-	HotfixPrefix       string `yaml:"hotfix_prefix"`
-	MergeStrategy      string `yaml:"merge_strategy"`
-	DefaultReleaseBump string `yaml:"default_release_bump"`
-	DraftPROnStart     *bool  `yaml:"draft_pr_on_start"`
-	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release"`
+	MainBranch         string `yaml:"main_branch,omitempty"`
+	TagPrefix          string `yaml:"tag_prefix,omitempty"`
+	FeaturePrefix      string `yaml:"feature_prefix,omitempty"`
+	HotfixPrefix       string `yaml:"hotfix_prefix,omitempty"`
+	MergeStrategy      string `yaml:"merge_strategy,omitempty"`
+	DefaultReleaseBump string `yaml:"default_release_bump,omitempty"`
+	DraftPROnStart     *bool  `yaml:"draft_pr_on_start,omitempty"`
+	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release,omitempty"`
 }
 
 // Defaults returns the built-in default configuration.
@@ -130,6 +130,16 @@ func ForceWriteDefaults(path string) error {
 // WriteConfig writes a full Config as YAML to the given path, creating or
 // overwriting the file.
 func WriteConfig(path string, cfg Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// WritePartialConfig writes only the non-zero fields of a PartialConfig as YAML
+// to the given path, creating or overwriting the file.
+func WritePartialConfig(path string, cfg PartialConfig) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
