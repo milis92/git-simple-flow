@@ -12,20 +12,22 @@ Simple Git Flow — all the structure, none of the ceremony.
 
 </div>
 
+[Installation](docs/installation.md) · [Workflow Guide](docs/simple-flow.md) · [Contributing](CONTRIBUTING.md)
+
 ---
 
 ## Why git-sf?
 
 Teams still juggle `git`, `gh`, and manual versioning across multiple commands just to
 branch, open a PR, merge, and tag a release. `git-sf` wraps the full workflow into simple, composable commands with
-semver versioning built in — so you can stop remembering the right sequence and focus on shipping code.
+semver versioning built in. Stop remembering the right sequence and focus on shipping code.
 
 > [!TIP]
 > Read the [workflow guide](docs/simple-flow.md) to understand the philosophy before diving into commands.
 
 ---
 
-## Features
+## Highlights
 
 - **One command per action** — start, publish, finish, or discard a branch in a single step
 - **Semver releases** — tag `major`, `minor`, or `patch` releases directly from `main`
@@ -40,9 +42,9 @@ semver versioning built in — so you can stop remembering the right sequence an
 ## Installation
 
 > [!IMPORTANT]
-> **Prerequisites:**  
-> [git](https://git-scm.com/) 2.x+  
-> [GitHub CLI](https://cli.github.com/) for PR operations.
+> **Prerequisites:**
+> [git](https://git-scm.com/) 2.x+
+> [gh](https://cli.github.com/) (GitHub CLI) — required for PR operations
 
 **Go install:**
 
@@ -50,7 +52,7 @@ semver versioning built in — so you can stop remembering the right sequence an
 go install github.com/milis92/git-simple-flow@latest
 ```
 
-Also available as `.deb`, `.rpm`, and manual download.
+Pre-built `.deb` and `.rpm` packages are also available. See the [full installation guide](docs/installation.md).
 
 **Verify it works:**
 
@@ -65,6 +67,9 @@ git sf -h
 
 ## Quick Start
 
+Edit the generated `.sfconfig.yml` to match your team's conventions (branch prefixes, merge strategy, etc.),
+then follow the branch → review → merge → release cycle:
+
 ```sh
 git sf init                        # create .sfconfig.yml with defaults
 git sf feature start my-feature    # branch from main
@@ -73,20 +78,19 @@ git sf feature finish              # merge PR + clean up
 git sf release minor               # tag v1.x.0
 ```
 
-Start by running `git sf init` to generate a `.sfconfig.yml` in your repo root with sensible defaults.
-Edit it to match your team's conventions (branch prefixes, merge strategy, etc.), then follow the
-branch → review → merge → release cycle above.
-
 ---
 
 ## Usage
 
 > [!TIP]
-> Every command supports `--dry-run` (preview without executing) and `--verbose` (print each command as it runs).
+> Most commands support `--dry-run` (preview without executing) and `--verbose` (print each command as it runs).
+> Read-only commands like `status`, `config`, and `init` ignore `--dry-run`.
 
-### Features
+See the [workflow guide](docs/simple-flow.md) for the philosophy behind these commands.
 
-Features branch from `main`, get a PR, and merge back when done.
+### Feature Branches
+
+Feature branches branch from `main`, get a PR, and merge back when done.
 
 ```sh
 git sf feature start my-feature    # create feature/my-feature from main
@@ -98,7 +102,7 @@ git sf feature discard             # close PR, delete branch, switch to main
 | Flag         | Command            | Description                                     |
 |--------------|--------------------|-------------------------------------------------|
 | `--draft-pr` | `start`            | Create a draft PR immediately after branching   |
-| `--title`    | `start`, `publish` | Override the auto-generated PR title            |
+| `--title`    | `start`, `publish` | Override the auto-generated PR title (on `start`, requires `--draft-pr`) |
 | `--body`     | `publish`          | Set the PR description                          |
 | `--force`    | `finish`           | Skip CI check verification before merging       |
 | `--reason`   | `discard`          | Leave a comment on the closed PR explaining why |
@@ -112,6 +116,7 @@ your configured strategy (`squash`/`merge`/`rebase`), then deletes the local and
 ### Hotfixes
 
 Hotfixes branch from the **latest release tag** — not from `main` — so unreleased code never leaks into the fix.
+At least one release tag must exist before starting a hotfix; if none exists, run `git sf release` first.
 
 ```sh
 git sf hotfix start crash-fix      # branch from latest release tag
@@ -123,7 +128,7 @@ git sf hotfix discard              # close PR, delete branch, switch to main
 | Flag         | Command            | Description                                     |
 |--------------|--------------------|-------------------------------------------------|
 | `--draft-pr` | `start`            | Create a draft PR immediately after branching   |
-| `--title`    | `start`, `publish` | Override the auto-generated PR title            |
+| `--title`    | `start`, `publish` | Override the auto-generated PR title (on `start`, requires `--draft-pr`) |
 | `--body`     | `publish`          | Set the PR description                          |
 | `--force`    | `finish`           | Skip CI check verification before merging       |
 | `--release`  | `finish`           | Auto-tag a patch release after merging          |
@@ -134,7 +139,7 @@ and pushes it — so `v1.2.3` becomes `v1.2.4` without a separate `release` comm
 
 ### Releases
 
-Releases tag `main` with the next semver version and push the tag to origin.
+The `release` command tags `main` with the next semver version and pushes the tag to origin.
 
 ```sh
 git sf release minor               # tag next minor version (default)
@@ -148,7 +153,7 @@ config (default: `minor`).
 
 ### Status
 
-`status` gives you a quick overview of where you are and what's going on.
+`status` shows your current branch, associated PR, CI state, and release info at a glance.
 
 ```sh
 git sf status
@@ -187,7 +192,7 @@ git sf completion fish             # output fish completions
 git sf completion powershell       # output PowerShell completions
 ```
 
-Pipe the output to the appropriate file for your shell. See the [installation guide](docs/installation.md) for setup
+Source or eval the output in your shell config. See the [installation guide](docs/installation.md) for setup
 instructions.
 
 ---
@@ -224,23 +229,19 @@ Run `git sf config` to inspect the resolved values and where each one comes from
 
 ---
 
-## Claude Code Skill
+## Integrations
+
+### Claude Code Skill
 
 The **git-sf-workflow** skill teaches [Claude Code](https://docs.anthropic.com/en/docs/claude-code) the Simple Flow
-branching model and how to use `git sf` instead of raw `git`/`gh` commands. Once installed, Claude understands the
-workflow concepts — single trunk, tag-based releases, hotfixes from tags — and automatically manages branches, PRs, and
-releases through `git sf` when working in any repository that has it installed.
-
-**Install the marketplace and plugin:**
+branching model and how to use `git sf` instead of raw `git`/`gh` commands. Once installed, Claude automatically manages
+branches, PRs, and releases through `git sf`.
 
 ```sh
 /plugin marketplace add milis92/git-simple-flow
 /plugin install git-sf-workflow@git-sf-marketplace
 /reload-plugins
 ```
-
-The skill is now available in every Claude Code session. Ask Claude to start a feature, open a PR, or cut a release, and
-it will follow the Simple Flow model using `git sf` commands.
 
 ---
 
