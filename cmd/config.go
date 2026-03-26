@@ -67,6 +67,52 @@ var initCmd = &cobra.Command{
 	},
 }
 
+// configEditCmd interactively edits .sfconfig.yml in the repo root.
+var configEditCmd = &cobra.Command{
+	Use:   "edit",
+	Short: "Interactively edit .sfconfig.yml",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		u := ui.New()
+		path := filepath.Join(repoRoot(), ".sfconfig.yml")
+
+		isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
+		if !ui.ShouldInteract(isTTY, noInteractive) {
+			return fmt.Errorf("config edit requires an interactive terminal (remove --no-interactive or edit .sfconfig.yml directly)")
+		}
+
+		cfg := loadConfig()
+		defaults := ui.InitFormResult{
+			MainBranch:    cfg.MainBranch,
+			Remote:        "origin",
+			FeaturePrefix: cfg.FeaturePrefix,
+			HotfixPrefix:  cfg.HotfixPrefix,
+			TagPrefix:     cfg.TagPrefix,
+			DraftPR:       cfg.DraftPROnStart,
+		}
+
+		r := runner.NewRunner(false, false)
+		g := git.New(r, ".")
+		branches, _ := g.ListBranches()
+		if len(branches) == 0 {
+			branches = []string{"main", "develop", "master"}
+		}
+
+		result, err := ui.RunInitForm(defaults, branches)
+		if err != nil {
+			return err
+		}
+
+		partial := result.ToPartialConfig()
+		merged := config.Merge(config.Defaults(), &partial)
+		if err := config.WriteConfig(path, merged); err != nil {
+			return err
+		}
+
+		u.Success("Updated " + path)
+		return nil
+	},
+}
+
 // configCmd displays the effective configuration with source attribution.
 var configCmd = &cobra.Command{
 	Use:   "config",
@@ -131,4 +177,5 @@ func init() {
 	initCmd.Flags().Bool("force", false, "overwrite existing config file")
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(configCmd)
+	configCmd.AddCommand(configEditCmd)
 }
