@@ -45,10 +45,22 @@ var configCmd = &cobra.Command{
 		cfg := loadConfig()
 
 		// Load individual layers to show source
-		homeDir, _ := os.UserHomeDir()
-		globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
-		global, _ := config.LoadFromFile(globalPath)
-		repo, _ := config.LoadFromFile(".sfconfig.yml")
+		var global *config.PartialConfig
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			u.Muted(fmt.Sprintf("Could not determine home directory: %s", err))
+		} else {
+			globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
+			var globalErr error
+			global, globalErr = config.LoadFromFile(globalPath)
+			if globalErr != nil {
+				u.Muted(fmt.Sprintf("Could not load global config: %s", globalErr))
+			}
+		}
+		repo, repoErr := config.LoadFromFile(".sfconfig.yml")
+		if repoErr != nil {
+			u.Muted(fmt.Sprintf("Could not load repo config: %s", repoErr))
+		}
 
 		u.Blank()
 		printConfigField(u, "main_branch", cfg.MainBranch, "main", global, repo,

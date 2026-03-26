@@ -3,6 +3,7 @@
 package status
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -55,8 +56,16 @@ func (s *Service) Show() error {
 
 	// PR info (if on feature/hotfix branch)
 	if branchType == "feature" || branchType == "hotfix" {
-		if gh.CheckGHInstalled() == nil {
-			if pr, err := s.GH.GetCurrentPR(); err == nil {
+		if err := gh.CheckGHInstalled(); err != nil {
+			s.UI.Muted(fmt.Sprintf("PR info unavailable: %s", err))
+		} else {
+			if pr, err := s.GH.GetCurrentPR(); err != nil {
+				if errors.Is(err, gh.ErrNoPR) {
+					s.UI.Muted("No PR for this branch")
+				} else {
+					s.UI.Muted(fmt.Sprintf("Could not fetch PR info: %s", err))
+				}
+			} else {
 				draft := ""
 				if pr.Draft {
 					draft = " (draft)"
@@ -64,7 +73,9 @@ func (s *Service) Show() error {
 				_, _ = fmt.Fprintf(s.UI.Out, "  PR:         #%d%s — %s\n", pr.Number, draft, pr.URL)
 
 				// Show checks
-				if checks, err := s.GH.GetPRChecks(); err == nil && len(checks) > 0 {
+				if checks, err := s.GH.GetPRChecks(); err != nil {
+					s.UI.Muted(fmt.Sprintf("Could not fetch PR checks: %s", err))
+				} else if len(checks) > 0 {
 					passing, failing, pending := 0, 0, 0
 					for _, c := range checks {
 						switch c.Conclusion {
@@ -91,7 +102,9 @@ func (s *Service) Show() error {
 
 		// Behind main
 		ahead, behind, err := s.Git.CommitsAheadBehind(branch, s.Config.MainBranch)
-		if err == nil {
+		if err != nil {
+			s.UI.Muted(fmt.Sprintf("Could not determine ahead/behind: %s", err))
+		} else {
 			if behind > 0 {
 				_, _ = fmt.Fprintf(s.UI.Out, "  Behind:     %d commits behind %s\n", behind, s.Config.MainBranch)
 			}
@@ -111,7 +124,9 @@ func (s *Service) Show() error {
 
 		if branch == s.Config.MainBranch {
 			ahead, _, err := s.Git.CommitsAheadBehind(s.Config.MainBranch, tag)
-			if err == nil && ahead > 0 {
+			if err != nil {
+				s.UI.Muted(fmt.Sprintf("Could not determine commits since %s: %s", tag, err))
+			} else if ahead > 0 {
 				_, _ = fmt.Fprintf(s.UI.Out, "  Ahead:         %d commits since %s\n", ahead, tag)
 			}
 		}

@@ -10,6 +10,9 @@ import (
 	"github.com/milis92/git-simple-flow/internal/runner"
 )
 
+// ErrNoPR is returned when no pull request exists for the current branch.
+var ErrNoPR = fmt.Errorf("no PR found for current branch")
+
 // GH provides GitHub CLI operations. It delegates command execution to a runner.Runner.
 type GH struct {
 	runner *runner.Runner
@@ -86,7 +89,7 @@ func (g *GH) ClosePR(reason string) error {
 func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	out, err := g.runner.Run("gh", "pr", "view", "--json", "number,title,state,url,isDraft")
 	if err != nil {
-		return nil, fmt.Errorf("no PR found for current branch")
+		return nil, ErrNoPR
 	}
 	var pr PRInfo
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
