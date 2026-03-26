@@ -140,7 +140,7 @@ func RunMessagePrompt(tagName string) (string, error) {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewText().
-				Title("Tag message for "+tagName).
+				Title("Tag message for " + tagName).
 				Description("Optional. Leave blank for a lightweight tag.").
 				Value(&message),
 		),

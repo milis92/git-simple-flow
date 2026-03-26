@@ -162,7 +162,7 @@ func (m ProgressModel) View() string {
 			elapsed = subtitleStyle.Render(fmt.Sprintf("%.1fs", s.elapsed.Seconds()))
 		}
 
-		b.WriteString(fmt.Sprintf("  %s %s", icon, label))
+		fmt.Fprintf(&b, "  %s %s", icon, label)
 		if elapsed != "" {
 			b.WriteString("  " + elapsed)
 		}
