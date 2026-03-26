@@ -362,9 +362,10 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 	return nil
 }
 
-// Discard abandons the current feature branch. It confirms with the user,
-// closes the PR if the gh CLI is available (posting reason as a comment if
-// provided), switches to main, and deletes the local and remote branches.
+// Discard abandons the current feature branch. It runs preflight checks,
+// detects the current branch, then routes to discardInteractive (Bubble Tea
+// progress) or discardClassic (print-style) based on whether the UI is in
+// interactive mode.
 func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -385,6 +386,63 @@ func (s *Service) Discard(reason string) error {
 		return fmt.Errorf("not on a feature branch (current branch: %s)", branch)
 	}
 
+	if s.UI.Interactive {
+		return s.discardInteractive(branch, reason)
+	}
+	return s.discardClassic(branch, reason)
+}
+
+// discardInteractive runs the feature discard workflow using the Bubble Tea
+// progress view. It skips the confirmation prompt — the user explicitly ran
+// the discard command.
+func (s *Service) discardInteractive(branch string, reason string) error {
+	defs := []ui.StepDef{
+		{Label: "Close PR"},
+		{Label: "Switch to " + s.Config.MainBranch},
+		{Label: "Delete local branch"},
+		{Label: "Delete remote branch"},
+	}
+
+	err := ui.RunProgress("git sf feature discard", branch, defs, func(cb ui.StepCallbacks) error {
+		// Step 0: Close PR (soft fail)
+		cb.Start()
+		_ = s.GH.ClosePR(reason)
+		cb.Done()
+
+		// Step 1: Switch to main
+		cb.Start()
+		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 2: Delete local branch
+		cb.Start()
+		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 3: Delete remote branch (soft fail)
+		cb.Start()
+		_ = s.Git.DeleteRemoteBranch(branch)
+		cb.Done()
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	s.UI.Result("Feature discarded.")
+	return nil
+}
+
+// discardClassic runs the existing print-style feature discard workflow with a
+// confirmation prompt. This is used when the UI is not in interactive mode.
+func (s *Service) discardClassic(branch string, reason string) error {
 	ok, err := s.UI.Confirm(fmt.Sprintf("Discard feature branch %q and close its PR?", branch))
 	if err != nil {
 		return err
