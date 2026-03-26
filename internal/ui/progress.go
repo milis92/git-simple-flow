@@ -229,8 +229,8 @@ func (m ProgressModel) TotalElapsed() time.Duration {
 
 // StepCallbacks provides functions for a workflow to signal step transitions.
 // The workflow must call Start before each step, followed by exactly one of
-// Done or Fail. The number of Start calls must not exceed the number of step
-// definitions passed to NewProgressModel.
+// Done, Fail, or Skip (via SkipStep). The number of Start calls must not
+// exceed the number of step definitions passed to NewProgressModel.
 type StepCallbacks struct {
 	Start func()
 	Done  func()
@@ -251,7 +251,7 @@ func (cb StepCallbacks) Run(fn func() error) error {
 }
 
 // RunSoftFail executes fn as the current step. On failure it marks the step
-// as failed but returns nil, allowing the workflow to continue.
+// as skipped (not failed) and returns nil, allowing the workflow to continue.
 func (cb StepCallbacks) RunSoftFail(fn func() error) {
 	cb.Start()
 	if err := fn(); err != nil {
@@ -297,7 +297,7 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 				s := fmt.Sprintf("%v", r)
 				if !strings.Contains(s, "send on closed") {
 					unexpectedPanic.Store(s)
-					fmt.Fprintf(os.Stderr, "unexpected panic in progress view: %v\n", r)
+					_, _ = fmt.Fprintf(os.Stderr, "unexpected panic in progress view: %v\n", r)
 				}
 			}
 		}()

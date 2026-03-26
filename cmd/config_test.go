@@ -81,6 +81,56 @@ func TestShouldUseInitWizard(t *testing.T) {
 	}
 }
 
+func TestInitWizardDefaultsSeedsFromExistingConfigWhenForce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".sfconfig.yml")
+	content := []byte("main_branch: develop\nmerge_strategy: rebase\n")
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got := initWizardDefaults(path, true)
+
+	if got.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q from existing config", got.MainBranch, "develop")
+	}
+	if got.MergeStrategy != "rebase" {
+		t.Errorf("MergeStrategy = %q, want %q from existing config", got.MergeStrategy, "rebase")
+	}
+	// Fields not in the existing file should fall back to built-in defaults
+	defaults := config.Defaults()
+	if got.FeaturePrefix != defaults.FeaturePrefix {
+		t.Errorf("FeaturePrefix = %q, want default %q", got.FeaturePrefix, defaults.FeaturePrefix)
+	}
+}
+
+func TestInitWizardDefaultsUsesBarDefaultsWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".sfconfig.yml")
+	content := []byte("main_branch: develop\n")
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got := initWizardDefaults(path, false)
+	defaults := config.Defaults()
+
+	if got.MainBranch != defaults.MainBranch {
+		t.Errorf("MainBranch = %q, want default %q (force=false should ignore existing file)", got.MainBranch, defaults.MainBranch)
+	}
+}
+
+func TestInitWizardDefaultsFallsBackOnMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nonexistent.yml")
+
+	got := initWizardDefaults(path, true)
+	defaults := config.Defaults()
+
+	if got.MainBranch != defaults.MainBranch {
+		t.Errorf("MainBranch = %q, want default %q (missing file should fall back)", got.MainBranch, defaults.MainBranch)
+	}
+}
+
 func TestBuildRepoConfigForEditPreservesUntouchedFields(t *testing.T) {
 	inherited := config.Config{
 		MainBranch:         "main",

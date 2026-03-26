@@ -77,6 +77,126 @@ exit 1
 	}
 }
 
+func TestCheckIsPending(t *testing.T) {
+	tests := []struct {
+		status string
+		want   bool
+	}{
+		{"in_progress", true},
+		{"queued", true},
+		{"completed", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			got := CheckIsPending(CheckStatus{Status: tt.status})
+			if got != tt.want {
+				t.Errorf("CheckIsPending(status=%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckAllowsMerge(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     string
+		conclusion string
+		want       bool
+	}{
+		{"success", "completed", "success", true},
+		{"neutral", "completed", "neutral", true},
+		{"skipped", "completed", "skipped", true},
+		{"failure", "completed", "failure", false},
+		{"cancelled", "completed", "cancelled", false},
+		{"timed_out", "completed", "timed_out", false},
+		{"action_required", "completed", "action_required", false},
+		{"stale", "completed", "stale", false},
+		{"pending blocks", "in_progress", "success", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CheckAllowsMerge(CheckStatus{Status: tt.status, Conclusion: tt.conclusion})
+			if got != tt.want {
+				t.Errorf("CheckAllowsMerge(status=%q, conclusion=%q) = %v, want %v",
+					tt.status, tt.conclusion, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyChecks(t *testing.T) {
+	tests := []struct {
+		name        string
+		checks      []CheckStatus
+		wantFailing []string
+		wantPending []string
+	}{
+		{
+			name:   "empty",
+			checks: nil,
+		},
+		{
+			name: "all passing",
+			checks: []CheckStatus{
+				{Name: "build", Status: "completed", Conclusion: "success"},
+				{Name: "lint", Status: "completed", Conclusion: "neutral"},
+			},
+		},
+		{
+			name: "one failing",
+			checks: []CheckStatus{
+				{Name: "build", Status: "completed", Conclusion: "success"},
+				{Name: "test", Status: "completed", Conclusion: "failure"},
+			},
+			wantFailing: []string{"test"},
+		},
+		{
+			name: "one pending",
+			checks: []CheckStatus{
+				{Name: "build", Status: "completed", Conclusion: "success"},
+				{Name: "deploy", Status: "in_progress"},
+			},
+			wantPending: []string{"deploy"},
+		},
+		{
+			name: "mixed",
+			checks: []CheckStatus{
+				{Name: "build", Status: "completed", Conclusion: "failure"},
+				{Name: "lint", Status: "in_progress"},
+				{Name: "test", Status: "completed", Conclusion: "success"},
+			},
+			wantFailing: []string{"build"},
+			wantPending: []string{"lint"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			failing, pending := ClassifyChecks(tt.checks)
+			if !slicesEqual(failing, tt.wantFailing) {
+				t.Errorf("ClassifyChecks() failing = %v, want %v", failing, tt.wantFailing)
+			}
+			if !slicesEqual(pending, tt.wantPending) {
+				t.Errorf("ClassifyChecks() pending = %v, want %v", pending, tt.wantPending)
+			}
+		})
+	}
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func installFakeGH(t *testing.T, script string) {
 	t.Helper()
 

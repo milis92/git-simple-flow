@@ -380,6 +380,9 @@ func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
+	if err := s.Git.CheckIsRepo(); err != nil {
+		return err
+	}
 	if err := s.Git.CheckCleanTree(); err != nil {
 		return err
 	}

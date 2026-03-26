@@ -98,7 +98,7 @@ func loadPartialConfig(path string) (*config.PartialConfig, []error, error) {
 
 func printConfigWarnings(out io.Writer, scope, path string, warnings []error) {
 	for _, warning := range warnings {
-		fmt.Fprintf(out, "warning: invalid %s config %s: %s (ignoring field)\n", scope, path, warning)
+		_, _ = fmt.Fprintf(out, "warning: invalid %s config %s: %s (ignoring field)\n", scope, path, warning)
 	}
 }
 

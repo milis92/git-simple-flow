@@ -35,7 +35,7 @@ var initCmd = &cobra.Command{
 		}
 
 		if shouldUseInitWizard(u) {
-			defaults := ui.InitFormResultFromDefaults(config.Defaults())
+			defaults := initWizardDefaults(path, force)
 
 			// Detect existing branches for the selector
 			r := runner.NewRunner(dryRun, verbose)
@@ -71,6 +71,19 @@ var initCmd = &cobra.Command{
 
 func shouldUseInitWizard(u *ui.UI) bool {
 	return u.ShouldPrompt()
+}
+
+// initWizardDefaults returns the form defaults for the init wizard. When force
+// is true and an existing config file can be loaded, its values are merged on
+// top of the built-in defaults so the wizard seeds from the current config.
+func initWizardDefaults(path string, force bool) ui.InitFormResult {
+	base := config.Defaults()
+	if force {
+		if existing, _, err := loadPartialConfig(path); err == nil {
+			base = config.Merge(base, existing)
+		}
+	}
+	return ui.InitFormResultFromDefaults(base)
 }
 
 // configEditCmd interactively edits .sfconfig.yml in the repo root.
