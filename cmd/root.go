@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,7 @@ func Execute() {
 func repoRoot() string {
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not determine repository root: %s (using current directory)\n", err)
 		return "."
 	}
 	return strings.TrimSpace(string(out))
@@ -46,12 +48,27 @@ func repoRoot() string {
 // (~/.config/git-sf/config.yml), then repo (.sfconfig.yml).
 func loadConfig() config.Config {
 	base := config.Defaults()
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not determine home directory: %s\n", err)
+		return base
+	}
 	globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
-	global, _ := config.LoadFromFile(globalPath)
+	global, err := config.LoadFromFile(globalPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load global config %s: %s\n", globalPath, err)
+	}
 	repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
-	repo, _ := config.LoadFromFile(repoPath)
-	return config.Merge(base, global, repo)
+	repo, err := config.LoadFromFile(repoPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load repo config %s: %s\n", repoPath, err)
+	}
+	cfg := config.Merge(base, global, repo)
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: invalid config: %s (using defaults)\n", err)
+		return config.Defaults()
+	}
+	return cfg
 }
 
 // newUI creates a UI instance with interactive mode set based on TTY and flags.

@@ -1,4 +1,5 @@
-// Package ui provides styled terminal output using lipgloss.
+// Package ui provides styled terminal output, interactive forms, and progress
+// views for the git-sf CLI using the Charm ecosystem (lipgloss, Huh, Bubble Tea).
 package ui
 
 import (
@@ -29,7 +30,7 @@ func New() *UI {
 }
 
 // ShouldPrompt reports whether optional interactive prompts should be shown.
-// AutoConfirm disables these prompts so commands can proceed with defaults.
+// It returns true only when Interactive is true and AutoConfirm is false.
 func (u *UI) ShouldPrompt() bool {
 	return u.Interactive && !u.AutoConfirm
 }

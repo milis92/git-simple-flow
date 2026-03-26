@@ -11,13 +11,12 @@ import (
 	"github.com/milis92/git-simple-flow/internal/version"
 )
 
-var runMessagePrompt = ui.RunMessagePrompt
-
 // Service orchestrates git, UI, and config to execute the release workflow.
 type Service struct {
-	Git    *git.Git
-	UI     *ui.UI
-	Config config.Config
+	Git              *git.Git
+	UI               *ui.UI
+	Config           config.Config
+	RunMessagePrompt func(string) (string, error)
 }
 
 // Release creates a new semver tag on main and pushes it to origin. It verifies
@@ -93,7 +92,7 @@ func (s *Service) Release(scope, message string) error {
 
 	if message == "" && s.UI.ShouldPrompt() {
 		var promptErr error
-		message, promptErr = runMessagePrompt(newTag)
+		message, promptErr = s.RunMessagePrompt(newTag)
 		if promptErr != nil {
 			return promptErr
 		}

@@ -16,16 +16,15 @@ import (
 	"github.com/milis92/git-simple-flow/internal/version"
 )
 
-var runTitlePrompt = ui.RunTitlePrompt
-var runProgress = ui.RunProgress
-
 // Service orchestrates git, GitHub CLI, UI, and config to execute
 // the hotfix branch workflow.
 type Service struct {
-	Git    *git.Git
-	GH     *gh.GH
-	UI     *ui.UI
-	Config config.Config
+	Git            *git.Git
+	GH             *gh.GH
+	UI             *ui.UI
+	Config         config.Config
+	RunTitlePrompt func(string, bool) (ui.InputPromptResult, error)
+	RunProgress    func(string, string, []ui.StepDef, func(context.Context, ui.StepCallbacks) error) error
 }
 
 // StartOpts configures hotfix branch creation.
@@ -119,7 +118,10 @@ func (s *Service) Publish(opts PublishOpts) error {
 		return err
 	}
 
-	clean, _ := s.Git.IsClean()
+	clean, err := s.Git.IsClean()
+	if err != nil {
+		return err
+	}
 	if !clean {
 		s.UI.Warning("You have uncommitted changes that won't be included in the PR.")
 	}
@@ -156,7 +158,7 @@ func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (
 			defaultTitle = gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
 		}
 
-		result, err := runTitlePrompt(defaultTitle, includeBody)
+		result, err := s.RunTitlePrompt(defaultTitle, includeBody)
 		if err != nil {
 			return "", "", err
 		}
@@ -245,7 +247,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		)
 	}
 
-	err = runProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = s.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		ctxGit := s.Git.WithContext(ctx)
 		ctxGH := s.GH.WithContext(ctx)
 
@@ -256,19 +258,27 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		} else {
 			checks, err := ctxGH.GetPRChecks()
 			if err != nil {
-				cb.Fail(err.Error())
-				return err
+				cb.Fail(fmt.Sprintf("could not fetch PR checks: %s", err))
+				return fmt.Errorf("could not fetch PR checks: %w", err)
 			}
 			var failing []string
+			var pending []string
 			for _, c := range checks {
 				if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
 					failing = append(failing, c.Name)
+				} else if c.Status != "completed" {
+					pending = append(pending, c.Name)
 				}
 			}
 			if len(failing) > 0 {
 				msg := fmt.Sprintf("checks failed: %s (use --force to override)", strings.Join(failing, ", "))
 				cb.Fail(msg)
 				return fmt.Errorf("PR has failing checks. Fix them or use --force to merge anyway")
+			}
+			if len(pending) > 0 {
+				msg := fmt.Sprintf("checks still running: %s (use --force to override)", strings.Join(pending, ", "))
+				cb.Fail(msg)
+				return fmt.Errorf("%s", msg)
 			}
 			cb.Done()
 		}
@@ -278,60 +288,43 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 
 		// Step: Merge PR
-		cb.Start()
-		if err := ctxGH.MergePR(s.Config.MergeStrategy); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGH.MergePR(s.Config.MergeStrategy) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step: Switch to <main>
-		cb.Start()
-		if err := ctxGit.Checkout(s.Config.MainBranch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.Checkout(s.Config.MainBranch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step: Pull latest
-		cb.Start()
-		if err := ctxGit.Pull(); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.Pull() }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step: Delete local branch
-		cb.Start()
-		if err := ctxGit.DeleteLocalBranch(branch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.DeleteLocalBranch(branch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step: Delete remote branch (soft fail)
-		cb.Start()
-		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
-		} else {
-			cb.Done()
-		}
+		cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) })
 
 		// Optional release steps
 		if opts.Release || s.Config.HotfixAutoRelease {
@@ -368,12 +361,9 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			}
 
 			// Step: Push tag
-			cb.Start()
-			if err := ctxGit.PushTag(newTag); err != nil {
-				cb.Fail(err.Error())
+			if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
 				return err
 			}
-			cb.Done()
 		}
 
 		return nil
@@ -531,7 +521,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		{Label: "Delete remote branch"},
 	}
 
-	err = runProgress("git sf hotfix discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = s.RunProgress("git sf hotfix discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		ctxGit := s.Git.WithContext(ctx)
 		ctxGH := s.GH.WithContext(ctx)
 
@@ -552,36 +542,25 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		}
 
 		// Step 1: Switch to main
-		cb.Start()
-		if err := ctxGit.Checkout(s.Config.MainBranch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.Checkout(s.Config.MainBranch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 2: Delete local branch
-		cb.Start()
-		if err := ctxGit.DeleteLocalBranch(branch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.DeleteLocalBranch(branch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 3: Delete remote branch (soft fail)
-		cb.Start()
-		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
-		} else {
-			cb.Done()
-		}
+		cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) })
 
 		return nil
 	})
@@ -606,12 +585,12 @@ func (s *Service) discardClassic(branch string, reason string) error {
 	}
 
 	if err := gh.CheckGHInstalled(); err == nil {
-		if err := s.GH.CheckAuthenticated(); err == nil {
-			if err := s.GH.ClosePR(reason); err != nil {
-				s.UI.Warning("No PR to close or already closed")
-			} else {
-				s.UI.Success("Closed PR")
-			}
+		if err := s.GH.CheckAuthenticated(); err != nil {
+			s.UI.Warning("gh not authenticated — skipping PR close")
+		} else if err := s.GH.ClosePR(reason); err != nil {
+			s.UI.Warning(fmt.Sprintf("Could not close PR: %s", err))
+		} else {
+			s.UI.Success("Closed PR")
 		}
 	}
 

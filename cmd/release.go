@@ -4,6 +4,7 @@ import (
 	"github.com/milis92/git-simple-flow/internal/git"
 	"github.com/milis92/git-simple-flow/internal/release"
 	"github.com/milis92/git-simple-flow/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -16,9 +17,10 @@ var releaseCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &release.Service{
-			Git:    git.New(r, "."),
-			UI:     newUI(),
-			Config: cfg,
+			Git:              git.New(r, "."),
+			UI:               newUI(),
+			Config:           cfg,
+			RunMessagePrompt: ui.RunMessagePrompt,
 		}
 
 		scope := cfg.DefaultReleaseBump

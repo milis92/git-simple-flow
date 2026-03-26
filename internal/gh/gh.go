@@ -95,7 +95,7 @@ func (g *GH) ClosePR(reason string) error {
 func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	out, err := g.runner.Run("gh", "pr", "view", "--json", "number,title,state,url,isDraft")
 	if err != nil {
-		return nil, ErrNoPR
+		return nil, fmt.Errorf("%w: %s", ErrNoPR, err)
 	}
 	var pr PRInfo
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {

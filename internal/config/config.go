@@ -39,6 +39,35 @@ type PartialConfig struct {
 	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release,omitempty"`
 }
 
+// Validate checks that enum-like fields contain valid values and that
+// required fields are non-empty. It returns an error describing the first
+// invalid field it finds.
+func (c Config) Validate() error {
+	if c.MainBranch == "" {
+		return fmt.Errorf("main_branch must not be empty")
+	}
+	switch c.MergeStrategy {
+	case "squash", "merge", "rebase":
+	default:
+		return fmt.Errorf("invalid merge_strategy %q: must be squash, merge, or rebase", c.MergeStrategy)
+	}
+	switch c.DefaultReleaseBump {
+	case "minor", "patch", "major":
+	default:
+		return fmt.Errorf("invalid default_release_bump %q: must be minor, patch, or major", c.DefaultReleaseBump)
+	}
+	if c.FeaturePrefix == "" {
+		return fmt.Errorf("feature_prefix must not be empty")
+	}
+	if c.HotfixPrefix == "" {
+		return fmt.Errorf("hotfix_prefix must not be empty")
+	}
+	if c.TagPrefix == "" {
+		return fmt.Errorf("tag_prefix must not be empty")
+	}
+	return nil
+}
+
 // Defaults returns the built-in default configuration.
 func Defaults() Config {
 	return Config{

@@ -303,3 +303,91 @@ func TestUpdatePartialConfigFileCreatesMissingFile(t *testing.T) {
 		t.Fatalf("DraftPROnStart = %v, want explicit false pointer", loaded.DraftPROnStart)
 	}
 }
+
+func TestValidateDefaults(t *testing.T) {
+	cfg := Defaults()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() on defaults should succeed, got %v", err)
+	}
+}
+
+func TestValidateEmptyMainBranch(t *testing.T) {
+	cfg := Defaults()
+	cfg.MainBranch = ""
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with empty MainBranch")
+	}
+	if !strings.Contains(err.Error(), "main_branch must not be empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateInvalidMergeStrategy(t *testing.T) {
+	cfg := Defaults()
+	cfg.MergeStrategy = "fast-forward"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with invalid MergeStrategy")
+	}
+	if !strings.Contains(err.Error(), "invalid merge_strategy") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateValidMergeStrategies(t *testing.T) {
+	for _, strategy := range []string{"squash", "merge", "rebase"} {
+		cfg := Defaults()
+		cfg.MergeStrategy = strategy
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with MergeStrategy=%q should succeed, got %v", strategy, err)
+		}
+	}
+}
+
+func TestValidateInvalidDefaultReleaseBump(t *testing.T) {
+	cfg := Defaults()
+	cfg.DefaultReleaseBump = "tiny"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with invalid DefaultReleaseBump")
+	}
+	if !strings.Contains(err.Error(), "invalid default_release_bump") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateValidDefaultReleaseBumps(t *testing.T) {
+	for _, bump := range []string{"minor", "patch", "major"} {
+		cfg := Defaults()
+		cfg.DefaultReleaseBump = bump
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with DefaultReleaseBump=%q should succeed, got %v", bump, err)
+		}
+	}
+}
+
+func TestValidateEmptyPrefixes(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Config)
+		want  string
+	}{
+		{"empty FeaturePrefix", func(c *Config) { c.FeaturePrefix = "" }, "feature_prefix must not be empty"},
+		{"empty HotfixPrefix", func(c *Config) { c.HotfixPrefix = "" }, "hotfix_prefix must not be empty"},
+		{"empty TagPrefix", func(c *Config) { c.TagPrefix = "" }, "tag_prefix must not be empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults()
+			tt.setup(&cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("Validate() should fail with %s", tt.name)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %q, want containing %q", err, tt.want)
+			}
+		})
+	}
+}

@@ -179,7 +179,7 @@ func loadGlobalConfig() (*config.PartialConfig, error) {
 func detectBranches(g *git.Git, u *ui.UI) []string {
 	branches, err := g.ListBranches()
 	if err != nil {
-		u.Muted(fmt.Sprintf("Could not detect branches: %s (using defaults)", err))
+		u.Warning(fmt.Sprintf("Could not detect branches: %s (using defaults)", err))
 		branches = []string{"main", "develop", "master"}
 	} else if len(branches) == 0 {
 		branches = []string{"main", "develop", "master"}

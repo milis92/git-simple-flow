@@ -21,13 +21,6 @@ func TestPublishPromptsBeforePush(t *testing.T) {
 	installFakeGH(t)
 
 	promptErr := errors.New("prompt cancelled")
-	oldPrompt := runTitlePrompt
-	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
-		return ui.InputPromptResult{}, promptErr
-	}
-	t.Cleanup(func() {
-		runTitlePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -39,6 +32,10 @@ func TestPublishPromptsBeforePush(t *testing.T) {
 		GH:     gh.New(r),
 		UI:     u,
 		Config: config.Defaults(),
+		RunTitlePrompt: func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
 	}
 
 	err := svc.Publish(PublishOpts{})
@@ -52,20 +49,6 @@ func TestPublishPromptsForBodyWhenTitleProvided(t *testing.T) {
 	installFakeGH(t)
 
 	promptErr := errors.New("prompt cancelled")
-	oldPrompt := runTitlePrompt
-	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
-		if defaultTitle != "Already set" {
-			t.Fatalf("defaultTitle = %q, want %q", defaultTitle, "Already set")
-		}
-		if !includeBody {
-			t.Fatal("includeBody = false, want true")
-		}
-
-		return ui.InputPromptResult{}, promptErr
-	}
-	t.Cleanup(func() {
-		runTitlePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -77,6 +60,17 @@ func TestPublishPromptsForBodyWhenTitleProvided(t *testing.T) {
 		GH:     gh.New(r),
 		UI:     u,
 		Config: config.Defaults(),
+		RunTitlePrompt: func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+			if defaultTitle != "Already set" {
+				t.Fatalf("defaultTitle = %q, want %q", defaultTitle, "Already set")
+			}
+			if !includeBody {
+				t.Fatal("includeBody = false, want true")
+			}
+
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
 	}
 
 	err := svc.Publish(PublishOpts{Title: "Already set"})
@@ -90,13 +84,6 @@ func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 	installFakeGH(t)
 
 	promptErr := errors.New("prompt should be skipped")
-	oldPrompt := runTitlePrompt
-	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
-		return ui.InputPromptResult{}, promptErr
-	}
-	t.Cleanup(func() {
-		runTitlePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -109,6 +96,10 @@ func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 		GH:     gh.New(r),
 		UI:     u,
 		Config: config.Defaults(),
+		RunTitlePrompt: func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
 	}
 
 	err := svc.Publish(PublishOpts{})
@@ -133,10 +124,12 @@ func TestFinishInteractiveNoPRUsesHelpfulError(t *testing.T) {
 	u.Interactive = true
 
 	svc := &Service{
-		Git:    git.New(r, repoDir),
-		GH:     gh.New(r),
-		UI:     u,
-		Config: config.Defaults(),
+		Git:            git.New(r, repoDir),
+		GH:             gh.New(r),
+		UI:             u,
+		Config:         config.Defaults(),
+		RunTitlePrompt: ui.RunTitlePrompt,
+		RunProgress:    ui.RunProgress,
 	}
 
 	err := svc.Finish(FinishOpts{})

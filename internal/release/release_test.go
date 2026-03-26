@@ -25,9 +25,10 @@ func TestReleaseAnnotatedTagWhenMessageProvided(t *testing.T) {
 	u.AutoConfirm = true
 
 	svc := &Service{
-		Git:    git.New(r, repoDir),
-		UI:     u,
-		Config: config.Defaults(),
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           config.Defaults(),
+		RunMessagePrompt: ui.RunMessagePrompt,
 	}
 
 	err := svc.Release("patch", "Release message")
@@ -60,18 +61,7 @@ func TestReleaseAnnotatedTagWhenMessageProvided(t *testing.T) {
 func TestReleasePromptsForMessageWhenInteractive(t *testing.T) {
 	repoDir := initReleaseRepo(t)
 
-	oldPrompt := runMessagePrompt
 	promptCalled := false
-	runMessagePrompt = func(tagName string) (string, error) {
-		promptCalled = true
-		if tagName != "v0.1.1" {
-			t.Fatalf("prompt tagName = %q, want %q", tagName, "v0.1.1")
-		}
-		return "Message from prompt", nil
-	}
-	t.Cleanup(func() {
-		runMessagePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -84,6 +74,13 @@ func TestReleasePromptsForMessageWhenInteractive(t *testing.T) {
 		Git:    git.New(r, repoDir),
 		UI:     u,
 		Config: config.Defaults(),
+		RunMessagePrompt: func(tagName string) (string, error) {
+			promptCalled = true
+			if tagName != "v0.1.1" {
+				t.Fatalf("prompt tagName = %q, want %q", tagName, "v0.1.1")
+			}
+			return "Message from prompt", nil
+		},
 	}
 
 	err := svc.Release("patch", "")
@@ -92,7 +89,7 @@ func TestReleasePromptsForMessageWhenInteractive(t *testing.T) {
 	}
 
 	if !promptCalled {
-		t.Fatal("expected runMessagePrompt to be called, but it was not")
+		t.Fatal("expected RunMessagePrompt to be called, but it was not")
 	}
 
 	// The tag should be annotated because the prompt returned a non-empty message.
@@ -113,16 +110,6 @@ func TestReleasePromptsForMessageWhenInteractive(t *testing.T) {
 func TestReleaseLightweightTagWhenNonInteractive(t *testing.T) {
 	repoDir := initReleaseRepo(t)
 
-	// Ensure the prompt is NOT called.
-	oldPrompt := runMessagePrompt
-	runMessagePrompt = func(tagName string) (string, error) {
-		t.Fatal("runMessagePrompt should not be called in non-interactive mode")
-		return "", nil
-	}
-	t.Cleanup(func() {
-		runMessagePrompt = oldPrompt
-	})
-
 	r := runner.NewRunner(false, false)
 	u := ui.New()
 	u.Out = &bytes.Buffer{}
@@ -133,6 +120,10 @@ func TestReleaseLightweightTagWhenNonInteractive(t *testing.T) {
 		Git:    git.New(r, repoDir),
 		UI:     u,
 		Config: config.Defaults(),
+		RunMessagePrompt: func(tagName string) (string, error) {
+			t.Fatal("RunMessagePrompt should not be called in non-interactive mode")
+			return "", nil
+		},
 	}
 
 	err := svc.Release("patch", "")

@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -85,9 +86,7 @@ func (m ProgressModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
-// Update implements tea.Model. Returns (tea.Model, tea.Cmd) to satisfy the
-// tea.Model interface. Callers who need to inspect ProgressModel fields
-// should type-assert the result: updated.(ProgressModel).
+// Update implements tea.Model.
 func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case StepStartMsg:
@@ -101,14 +100,14 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case StepDoneMsg:
-		if m.current >= 0 && m.current < len(m.steps) {
+		if m.current >= 0 && m.current < len(m.steps) && m.steps[m.current].status == StepActive {
 			m.steps[m.current].status = StepDone
 			m.steps[m.current].elapsed = time.Since(m.steps[m.current].startedAt)
 		}
 		return m, nil
 
 	case StepFailedMsg:
-		if m.current >= 0 && m.current < len(m.steps) {
+		if m.current >= 0 && m.current < len(m.steps) && m.steps[m.current].status == StepActive {
 			m.steps[m.current].status = StepFailed
 			m.steps[m.current].elapsed = time.Since(m.steps[m.current].startedAt)
 			m.steps[m.current].errMsg = msg.Err
@@ -221,6 +220,29 @@ type StepCallbacks struct {
 	Fail  func(err string)
 }
 
+// Run executes fn as the current step. It calls Start before fn and
+// Done or Fail after, depending on whether fn returns an error.
+func (cb StepCallbacks) Run(fn func() error) error {
+	cb.Start()
+	if err := fn(); err != nil {
+		cb.Fail(err.Error())
+		return err
+	}
+	cb.Done()
+	return nil
+}
+
+// RunSoftFail executes fn as the current step. On failure it marks the step
+// as failed but returns nil, allowing the workflow to continue.
+func (cb StepCallbacks) RunSoftFail(fn func() error) {
+	cb.Start()
+	if err := fn(); err != nil {
+		cb.Fail(err.Error())
+	} else {
+		cb.Done()
+	}
+}
+
 // RunProgress runs a Bubble Tea progress view while executing the workflow function.
 // The workflow function receives a context and StepCallbacks to signal step transitions.
 // The context is cancelled when Bubble Tea exits, allowing workflows to bail out early.
@@ -234,15 +256,18 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 	defer cancel()
 
 	errCh := make(chan error, 1)
+	var unexpectedPanic atomic.Value // stores string if safeSend catches a non-"send on closed" panic
 
 	// safeSend sends a message to the Bubble Tea program, suppressing the
 	// expected "send on closed channel" panic from a program that has already
-	// quit (e.g. user pressed Ctrl+C). Unexpected panics are logged to stderr.
+	// quit (e.g. user pressed Ctrl+C). Unexpected panics are stored and
+	// surfaced by RunProgress after the program exits.
 	safeSend := func(msg tea.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
-				// Only suppress the expected panic from sending to a quit program
-				if s := fmt.Sprintf("%v", r); !strings.Contains(s, "send on closed") {
+				s := fmt.Sprintf("%v", r)
+				if !strings.Contains(s, "send on closed") {
+					unexpectedPanic.Store(s)
 					fmt.Fprintf(os.Stderr, "unexpected panic in progress view: %v\n", r)
 				}
 			}
@@ -284,6 +309,10 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 
 	if m, ok := finalModel.(ProgressModel); ok && m.overflowErr != "" {
 		return fmt.Errorf("BUG: %s", m.overflowErr)
+	}
+
+	if v := unexpectedPanic.Load(); v != nil {
+		return fmt.Errorf("unexpected panic in progress view: %s", v.(string))
 	}
 
 	return nil

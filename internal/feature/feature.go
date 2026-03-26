@@ -5,6 +5,7 @@ package feature
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,16 +15,15 @@ import (
 	"github.com/milis92/git-simple-flow/internal/ui"
 )
 
-var runTitlePrompt = ui.RunTitlePrompt
-var runProgress = ui.RunProgress
-
 // Service orchestrates git, GitHub CLI, UI, and config to execute
 // the feature branch workflow.
 type Service struct {
-	Git    *git.Git
-	GH     *gh.GH
-	UI     *ui.UI
-	Config config.Config
+	Git            *git.Git
+	GH             *gh.GH
+	UI             *ui.UI
+	Config         config.Config
+	RunTitlePrompt func(string, bool) (ui.InputPromptResult, error)
+	RunProgress    func(string, string, []ui.StepDef, func(context.Context, ui.StepCallbacks) error) error
 }
 
 // StartOpts configures feature branch creation.
@@ -160,7 +160,7 @@ func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (
 			defaultTitle = gh.HumanizeBranchName(branch, s.Config.FeaturePrefix)
 		}
 
-		result, err := runTitlePrompt(defaultTitle, includeBody)
+		result, err := s.RunTitlePrompt(defaultTitle, includeBody)
 		if err != nil {
 			return "", "", err
 		}
@@ -175,6 +175,13 @@ func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (
 	}
 
 	return title, body, nil
+}
+
+func currentPRError(err error) error {
+	if errors.Is(err, gh.ErrNoPR) {
+		return fmt.Errorf("no PR found for this branch. Run 'git sf feature publish' first")
+	}
+	return err
 }
 
 // Finish merges the current feature branch's PR and cleans up. It runs
@@ -214,7 +221,7 @@ func (s *Service) Finish(opts FinishOpts) error {
 func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 	pr, err := s.GH.GetCurrentPR()
 	if err != nil {
-		return err
+		return currentPRError(err)
 	}
 	s.UI.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
 
@@ -240,7 +247,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		defs[0].Label = "Check CI (skipped)"
 	}
 
-	err = runProgress("git sf feature finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = s.RunProgress("git sf feature finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		ctxGit := s.Git.WithContext(ctx)
 		ctxGH := s.GH.WithContext(ctx)
 
@@ -249,17 +256,25 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		if !opts.Force {
 			checks, err := ctxGH.GetPRChecks()
 			if err != nil {
-				cb.Fail(err.Error())
-				return err
+				cb.Fail(fmt.Sprintf("could not fetch PR checks: %s", err))
+				return fmt.Errorf("could not fetch PR checks: %w", err)
 			}
 			var failing []string
+			var pending []string
 			for _, c := range checks {
 				if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
 					failing = append(failing, c.Name)
+				} else if c.Status != "completed" {
+					pending = append(pending, c.Name)
 				}
 			}
 			if len(failing) > 0 {
 				errMsg := fmt.Sprintf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
+				cb.Fail(errMsg)
+				return fmt.Errorf("%s", errMsg)
+			}
+			if len(pending) > 0 {
+				errMsg := fmt.Sprintf("PR checks still running: %s (use --force to override)", strings.Join(pending, ", "))
 				cb.Fail(errMsg)
 				return fmt.Errorf("%s", errMsg)
 			}
@@ -271,60 +286,43 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 
 		// Step 1: Merge PR
-		cb.Start()
-		if err := ctxGH.MergePR(s.Config.MergeStrategy); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGH.MergePR(s.Config.MergeStrategy) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 2: Switch to main
-		cb.Start()
-		if err := ctxGit.Checkout(s.Config.MainBranch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.Checkout(s.Config.MainBranch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 3: Pull latest
-		cb.Start()
-		if err := ctxGit.Pull(); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.Pull() }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 4: Delete local branch
-		cb.Start()
-		if err := ctxGit.DeleteLocalBranch(branch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.DeleteLocalBranch(branch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 5: Delete remote branch (soft fail)
-		cb.Start()
-		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
-		} else {
-			cb.Done()
-		}
+		cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) })
 
 		return nil
 	})
@@ -341,25 +339,31 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 	pr, err := s.GH.GetCurrentPR()
 	if err != nil {
-		return err
+		return currentPRError(err)
 	}
 	s.UI.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
 
 	if !opts.Force {
 		checks, err := s.GH.GetPRChecks()
 		if err != nil {
-			return err
+			return fmt.Errorf("could not fetch PR checks: %w", err)
 		}
 		var failing []string
 		for _, c := range checks {
-			if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
+			switch {
+			case c.Conclusion == "failure" || c.Conclusion == "cancelled":
+				s.UI.Error(c.Name + " — failed")
 				failing = append(failing, c.Name)
+			case c.Status != "completed":
+				s.UI.Warning(c.Name + " — " + c.Status)
+				failing = append(failing, c.Name)
+			default:
+				s.UI.Success(c.Name + " — passed")
 			}
 		}
 		if len(failing) > 0 {
 			return fmt.Errorf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
 		}
-		s.UI.Success("PR checks passed")
 	}
 
 	ok, err := s.UI.Confirm(fmt.Sprintf("Merge PR #%d — %q?", pr.Number, pr.Title))
@@ -448,7 +452,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		{Label: "Delete remote branch"},
 	}
 
-	err = runProgress("git sf feature discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = s.RunProgress("git sf feature discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		ctxGit := s.Git.WithContext(ctx)
 		ctxGH := s.GH.WithContext(ctx)
 
@@ -469,36 +473,25 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		}
 
 		// Step 1: Switch to main
-		cb.Start()
-		if err := ctxGit.Checkout(s.Config.MainBranch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.Checkout(s.Config.MainBranch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 2: Delete local branch
-		cb.Start()
-		if err := ctxGit.DeleteLocalBranch(branch); err != nil {
-			cb.Fail(err.Error())
+		if err := cb.Run(func() error { return ctxGit.DeleteLocalBranch(branch) }); err != nil {
 			return err
 		}
-		cb.Done()
 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// Step 3: Delete remote branch (soft fail)
-		cb.Start()
-		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
-		} else {
-			cb.Done()
-		}
+		cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) })
 
 		return nil
 	})
@@ -523,7 +516,9 @@ func (s *Service) discardClassic(branch string, reason string) error {
 	}
 
 	if ghErr := gh.CheckGHInstalled(); ghErr == nil {
-		if err := s.GH.ClosePR(reason); err != nil {
+		if err := s.GH.CheckAuthenticated(); err != nil {
+			s.UI.Warning("gh not authenticated — skipping PR close")
+		} else if err := s.GH.ClosePR(reason); err != nil {
 			s.UI.Warning("Could not close PR (may not exist): " + err.Error())
 		} else {
 			s.UI.Success("Closed PR")

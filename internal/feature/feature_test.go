@@ -23,13 +23,6 @@ func TestPublishPromptsBeforePush(t *testing.T) {
 	installFakeGH(t)
 
 	promptErr := errors.New("prompt cancelled")
-	oldPrompt := runTitlePrompt
-	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
-		return ui.InputPromptResult{}, promptErr
-	}
-	t.Cleanup(func() {
-		runTitlePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -41,6 +34,10 @@ func TestPublishPromptsBeforePush(t *testing.T) {
 		GH:     gh.New(r),
 		UI:     u,
 		Config: config.Defaults(),
+		RunTitlePrompt: func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
 	}
 
 	err := svc.Publish(PublishOpts{})
@@ -54,20 +51,6 @@ func TestPublishPromptsForBodyWhenTitleProvided(t *testing.T) {
 	installFakeGH(t)
 
 	promptErr := errors.New("prompt cancelled")
-	oldPrompt := runTitlePrompt
-	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
-		if defaultTitle != "Already set" {
-			t.Fatalf("defaultTitle = %q, want %q", defaultTitle, "Already set")
-		}
-		if !includeBody {
-			t.Fatal("includeBody = false, want true")
-		}
-
-		return ui.InputPromptResult{}, promptErr
-	}
-	t.Cleanup(func() {
-		runTitlePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -79,6 +62,17 @@ func TestPublishPromptsForBodyWhenTitleProvided(t *testing.T) {
 		GH:     gh.New(r),
 		UI:     u,
 		Config: config.Defaults(),
+		RunTitlePrompt: func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+			if defaultTitle != "Already set" {
+				t.Fatalf("defaultTitle = %q, want %q", defaultTitle, "Already set")
+			}
+			if !includeBody {
+				t.Fatal("includeBody = false, want true")
+			}
+
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
 	}
 
 	err := svc.Publish(PublishOpts{Title: "Already set"})
@@ -92,13 +86,6 @@ func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 	installFakeGH(t)
 
 	promptErr := errors.New("prompt should be skipped")
-	oldPrompt := runTitlePrompt
-	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
-		return ui.InputPromptResult{}, promptErr
-	}
-	t.Cleanup(func() {
-		runTitlePrompt = oldPrompt
-	})
 
 	r := runner.NewRunner(false, false)
 	u := ui.New()
@@ -111,6 +98,10 @@ func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 		GH:     gh.New(r),
 		UI:     u,
 		Config: config.Defaults(),
+		RunTitlePrompt: func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
 	}
 
 	err := svc.Publish(PublishOpts{})
@@ -131,35 +122,6 @@ func TestFinishInteractiveCancelsInFlightMerge(t *testing.T) {
 	mergeDone := filepath.Join(t.TempDir(), "merge-done")
 	installFinishGH(t, mergeStarted, mergeDone)
 
-	oldRunProgress := runProgress
-	runProgress = func(_ string, _ string, _ []ui.StepDef, workflow func(context.Context, ui.StepCallbacks) error) error {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- workflow(ctx, ui.StepCallbacks{
-				Start: func() {},
-				Done:  func() {},
-				Fail:  func(string) {},
-			})
-		}()
-
-		waitForFile(t, mergeStarted, time.Second)
-		cancel()
-
-		select {
-		case err := <-errCh:
-			return err
-		case <-time.After(2 * time.Second):
-			t.Fatal("workflow did not stop after cancellation")
-			return nil
-		}
-	}
-	t.Cleanup(func() {
-		runProgress = oldRunProgress
-	})
-
 	r := runner.NewRunner(false, false)
 	u := ui.New()
 	u.Out = &bytes.Buffer{}
@@ -167,10 +129,35 @@ func TestFinishInteractiveCancelsInFlightMerge(t *testing.T) {
 	u.AutoConfirm = true
 
 	svc := &Service{
-		Git:    git.New(r, repoDir),
-		GH:     gh.New(r),
-		UI:     u,
-		Config: config.Defaults(),
+		Git:            git.New(r, repoDir),
+		GH:             gh.New(r),
+		UI:             u,
+		Config:         config.Defaults(),
+		RunTitlePrompt: ui.RunTitlePrompt,
+		RunProgress: func(_ string, _ string, _ []ui.StepDef, workflow func(context.Context, ui.StepCallbacks) error) error {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- workflow(ctx, ui.StepCallbacks{
+					Start: func() {},
+					Done:  func() {},
+					Fail:  func(string) {},
+				})
+			}()
+
+			waitForFile(t, mergeStarted, time.Second)
+			cancel()
+
+			select {
+			case err := <-errCh:
+				return err
+			case <-time.After(2 * time.Second):
+				t.Fatal("workflow did not stop after cancellation")
+				return nil
+			}
+		},
 	}
 
 	err := svc.Finish(FinishOpts{})
