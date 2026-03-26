@@ -26,10 +26,12 @@ var releaseCmd = &cobra.Command{
 			scope = args[0]
 		}
 
-		return svc.Release(scope)
+		message, _ := cmd.Flags().GetString("message")
+		return svc.Release(scope, message)
 	},
 }
 
 func init() {
+	releaseCmd.Flags().StringP("message", "m", "", "tag message (prompted if interactive and not provided)")
 	rootCmd.AddCommand(releaseCmd)
 }

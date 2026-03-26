@@ -85,6 +85,12 @@ func (g *Git) Tag(name string) error {
 	return err
 }
 
+// TagAnnotated creates an annotated tag with the given message.
+func (g *Git) TagAnnotated(name, message string) error {
+	_, err := g.run("tag", "-a", name, "-m", message)
+	return err
+}
+
 // PushTag pushes a single tag to origin.
 func (g *Git) PushTag(name string) error {
 	_, err := g.run("push", "origin", name)

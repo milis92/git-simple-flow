@@ -23,7 +23,7 @@ type Service struct {
 // the next version based on scope ("major", "minor", or "patch"), shows a
 // confirmation prompt with current and next versions, then creates and pushes the tag.
 // If no tags exist yet, it starts at v0.1.0.
-func (s *Service) Release(scope string) error {
+func (s *Service) Release(scope, message string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
@@ -87,8 +87,22 @@ func (s *Service) Release(scope string) error {
 
 	s.UI.Blank()
 
-	if err := s.Git.Tag(newTag); err != nil {
-		return err
+	if message == "" && s.UI.Interactive {
+		var promptErr error
+		message, promptErr = ui.RunMessagePrompt(newTag)
+		if promptErr != nil {
+			return promptErr
+		}
+	}
+
+	if message != "" {
+		if err := s.Git.TagAnnotated(newTag, message); err != nil {
+			return err
+		}
+	} else {
+		if err := s.Git.Tag(newTag); err != nil {
+			return err
+		}
 	}
 	s.UI.Success("Tagged " + newTag)
 
