@@ -121,26 +121,45 @@ func TestConfirmAutoConfirm(t *testing.T) {
 	}
 }
 
-func TestConfirmNonInteractiveRequiresYes(t *testing.T) {
+func TestConfirmNonInteractiveReadsStdin(t *testing.T) {
 	var buf bytes.Buffer
 	u := &UI{
-		Out:   &buf,
-		In:    strings.NewReader("y\n"),
-		theme: DefaultTheme(),
+		Out:         &buf,
+		In:          strings.NewReader("y\n"),
+		Interactive: false,
+		theme:       DefaultTheme(),
 	}
 
 	got, err := u.Confirm("Deploy?")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v, want nil", err)
+	}
+	if !got {
+		t.Error("Confirm() = false, want true when stdin confirms")
+	}
+	if !strings.Contains(buf.String(), "Deploy?") {
+		t.Fatalf("Confirm() output = %q, want prompt text", buf.String())
+	}
+	if strings.Contains(buf.String(), "skipped") {
+		t.Fatalf("Confirm() output = %q, should not skip non-interactive confirmations", buf.String())
+	}
+}
+
+func TestConfirmNonInteractiveEOFDeclinesWithoutError(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:         &buf,
+		In:          strings.NewReader(""),
+		Interactive: false,
+		theme:       DefaultTheme(),
+	}
+
+	got, err := u.Confirm("Deploy?")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v, want nil on EOF", err)
+	}
 	if got {
-		t.Error("Confirm() = true, want false when prompting is disabled")
-	}
-	if !errors.Is(err, ErrConfirmationRequired) {
-		t.Fatalf("Confirm() error = %v, want ErrConfirmationRequired", err)
-	}
-	if !strings.Contains(err.Error(), "--yes") {
-		t.Fatalf("Confirm() error = %q, want guidance to rerun with --yes", err.Error())
-	}
-	if !strings.Contains(buf.String(), "skipped (non-interactive; rerun with --yes)") {
-		t.Fatalf("Confirm() output = %q, want non-interactive skip message", buf.String())
+		t.Error("Confirm() = true, want false on EOF")
 	}
 }
 

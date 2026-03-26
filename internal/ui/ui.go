@@ -10,10 +10,6 @@ import (
 	"strings"
 )
 
-// ErrConfirmationRequired is returned when a confirmation prompt cannot be
-// shown because interactive prompting is disabled.
-var ErrConfirmationRequired = errors.New("confirmation required in non-interactive mode")
-
 // UI handles styled terminal output. All output methods write to Out.
 type UI struct {
 	// Out is the writer for all UI output. Defaults to os.Stdout.
@@ -87,16 +83,12 @@ func (u *UI) Result(msg string) {
 // Confirm prints a y/N prompt and reads a single line from stdin.
 // Returns true if the user answers "y", "Y", or "yes".
 // If AutoConfirm is set, returns true immediately without waiting for input.
-// If interactive prompting is disabled, it returns an error instructing the
-// caller to rerun with --yes.
+// Unlike rich Huh/Bubble Tea prompts, confirmation remains available even when
+// Interactive is false so piped or captured runs can still answer or abort.
 func (u *UI) Confirm(msg string) (bool, error) {
 	if u.AutoConfirm {
 		_, _ = fmt.Fprintf(u.Out, "  %s [y/N] y (auto-confirmed)\n", msg)
 		return true, nil
-	}
-	if !u.Interactive {
-		_, _ = fmt.Fprintf(u.Out, "  %s [y/N] skipped (non-interactive; rerun with --yes)\n", msg)
-		return false, fmt.Errorf("%w; rerun with --yes to proceed", ErrConfirmationRequired)
 	}
 	_, _ = fmt.Fprintf(u.Out, "  %s [y/N] ", msg)
 	var response string

@@ -144,7 +144,7 @@ func TestReleaseLightweightTagWhenNonInteractive(t *testing.T) {
 	}
 }
 
-func TestReleaseNonInteractiveRequiresYes(t *testing.T) {
+func TestReleaseNonInteractiveDeclineAbortsWithoutTag(t *testing.T) {
 	repoDir := initReleaseRepo(t)
 
 	var buf bytes.Buffer
@@ -153,6 +153,7 @@ func TestReleaseNonInteractiveRequiresYes(t *testing.T) {
 	u := ui.New()
 	u.Out = &buf
 	u.Interactive = false
+	u.In = strings.NewReader("n\n")
 
 	svc := &Service{
 		Git:    git.New(r, repoDir),
@@ -165,17 +166,17 @@ func TestReleaseNonInteractiveRequiresYes(t *testing.T) {
 	}
 
 	err := svc.Release("patch", "")
-	if err == nil {
-		t.Fatal("Release() error = nil, want confirmation-required error")
-	}
-	if !strings.Contains(err.Error(), "--yes") {
-		t.Fatalf("Release() error = %q, want guidance to rerun with --yes", err.Error())
+	if err != nil {
+		t.Fatalf("Release() error = %v, want nil when confirmation is declined", err)
 	}
 	if strings.Contains(runGit(t, repoDir, "tag", "-l", "v0.1.1"), "v0.1.1") {
-		t.Fatal("release should not create a tag when confirmation is unavailable")
+		t.Fatal("release should not create a tag when confirmation is declined")
 	}
-	if !strings.Contains(buf.String(), "skipped (non-interactive; rerun with --yes)") {
-		t.Fatalf("Release() output = %q, want non-interactive skip message", buf.String())
+	if !strings.Contains(buf.String(), "Confirm release? [y/N]") {
+		t.Fatalf("Release() output = %q, want confirmation prompt", buf.String())
+	}
+	if !strings.Contains(buf.String(), "Aborted.") {
+		t.Fatalf("Release() output = %q, want abort message", buf.String())
 	}
 }
 
