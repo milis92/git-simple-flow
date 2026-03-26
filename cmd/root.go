@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/milis92/git-simple-flow/internal/config"
+	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -50,6 +51,14 @@ func loadConfig() config.Config {
 	repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
 	repo, _ := config.LoadFromFile(repoPath)
 	return config.Merge(base, global, repo)
+}
+
+// newUI creates a UI instance with interactive mode set based on TTY and flags.
+func newUI() *ui.UI {
+	u := ui.New()
+	isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
+	u.Interactive = ui.ShouldInteract(isTTY, noInteractive)
+	return u
 }
 
 func init() {

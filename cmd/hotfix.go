@@ -5,7 +5,6 @@ import (
 	"github.com/milis92/git-simple-flow/internal/git"
 	"github.com/milis92/git-simple-flow/internal/hotfix"
 	"github.com/milis92/git-simple-flow/internal/runner"
-	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +25,7 @@ var hotfixStartCmd = &cobra.Command{
 		svc := &hotfix.Service{
 			Git:    git.New(r, "."),
 			GH:     gh.New(r),
-			UI:     ui.New(),
+			UI:     newUI(),
 			Config: cfg,
 		}
 		draftPR, _ := cmd.Flags().GetBool("draft-pr")
@@ -45,7 +44,7 @@ var hotfixPublishCmd = &cobra.Command{
 		svc := &hotfix.Service{
 			Git:    git.New(r, "."),
 			GH:     gh.New(r),
-			UI:     ui.New(),
+			UI:     newUI(),
 			Config: cfg,
 		}
 		title, _ := cmd.Flags().GetString("title")
@@ -64,7 +63,7 @@ var hotfixFinishCmd = &cobra.Command{
 		svc := &hotfix.Service{
 			Git:    git.New(r, "."),
 			GH:     gh.New(r),
-			UI:     ui.New(),
+			UI:     newUI(),
 			Config: cfg,
 		}
 		force, _ := cmd.Flags().GetBool("force")
@@ -83,7 +82,7 @@ var hotfixDiscardCmd = &cobra.Command{
 		svc := &hotfix.Service{
 			Git:    git.New(r, "."),
 			GH:     gh.New(r),
-			UI:     ui.New(),
+			UI:     newUI(),
 			Config: cfg,
 		}
 		reason, _ := cmd.Flags().GetString("reason")

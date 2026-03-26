@@ -26,6 +26,8 @@ type UI struct {
 	Out io.Writer
 	// In is the reader for user input. Defaults to os.Stdin.
 	In io.Reader
+	// Interactive indicates whether interactive prompts (Huh forms) should be used.
+	Interactive bool
 }
 
 // New creates a UI that writes to stdout and reads from stdin.
