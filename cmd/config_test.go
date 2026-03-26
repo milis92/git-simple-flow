@@ -42,6 +42,45 @@ func TestLoadPartialConfigSanitizesInvalidEnums(t *testing.T) {
 	}
 }
 
+func TestShouldUseInitWizard(t *testing.T) {
+	tests := []struct {
+		name string
+		ui   *ui.UI
+		want bool
+	}{
+		{
+			name: "interactive prompt-enabled mode uses wizard",
+			ui: &ui.UI{
+				Interactive: true,
+			},
+			want: true,
+		},
+		{
+			name: "auto confirm skips wizard",
+			ui: &ui.UI{
+				Interactive: true,
+				AutoConfirm: true,
+			},
+			want: false,
+		},
+		{
+			name: "non interactive skips wizard",
+			ui: &ui.UI{
+				Interactive: false,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldUseInitWizard(tt.ui); got != tt.want {
+				t.Fatalf("shouldUseInitWizard() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildRepoConfigForEditPreservesUntouchedFields(t *testing.T) {
 	inherited := config.Config{
 		MainBranch:         "main",

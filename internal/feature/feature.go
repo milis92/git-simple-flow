@@ -231,7 +231,7 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 		if err != nil {
 			return fmt.Errorf("could not fetch PR checks: %w", err)
 		}
-		var failing []string
+		var failing, pending []string
 		for _, c := range checks {
 			switch {
 			case c.Conclusion == "failure" || c.Conclusion == "cancelled":
@@ -239,13 +239,16 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 				failing = append(failing, c.Name)
 			case c.Status != "completed":
 				s.UI.Warning(c.Name + " — " + c.Status)
-				failing = append(failing, c.Name)
+				pending = append(pending, c.Name)
 			default:
 				s.UI.Success(c.Name + " — passed")
 			}
 		}
 		if len(failing) > 0 {
 			return fmt.Errorf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
+		}
+		if len(pending) > 0 {
+			return fmt.Errorf("PR checks still running: %s (use --force to override)", strings.Join(pending, ", "))
 		}
 	}
 

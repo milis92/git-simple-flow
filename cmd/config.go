@@ -34,7 +34,7 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		if u.Interactive {
+		if shouldUseInitWizard(u) {
 			defaults := ui.InitFormResultFromDefaults(config.Defaults())
 
 			// Detect existing branches for the selector
@@ -67,6 +67,10 @@ var initCmd = &cobra.Command{
 		u.Muted("Edit this file to customize your workflow, or run: git sf config edit")
 		return nil
 	},
+}
+
+func shouldUseInitWizard(u *ui.UI) bool {
+	return u.ShouldPrompt()
 }
 
 // configEditCmd interactively edits .sfconfig.yml in the repo root.

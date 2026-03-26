@@ -144,6 +144,41 @@ func TestReleaseLightweightTagWhenNonInteractive(t *testing.T) {
 	}
 }
 
+func TestReleaseNonInteractiveRequiresYes(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	var buf bytes.Buffer
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &buf
+	u.Interactive = false
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		UI:     u,
+		Config: config.Defaults(),
+		RunMessagePrompt: func(tagName string) (string, error) {
+			t.Fatal("RunMessagePrompt should not be called in non-interactive mode")
+			return "", nil
+		},
+	}
+
+	err := svc.Release("patch", "")
+	if err == nil {
+		t.Fatal("Release() error = nil, want confirmation-required error")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("Release() error = %q, want guidance to rerun with --yes", err.Error())
+	}
+	if strings.Contains(runGit(t, repoDir, "tag", "-l", "v0.1.1"), "v0.1.1") {
+		t.Fatal("release should not create a tag when confirmation is unavailable")
+	}
+	if !strings.Contains(buf.String(), "skipped (non-interactive; rerun with --yes)") {
+		t.Fatalf("Release() output = %q, want non-interactive skip message", buf.String())
+	}
+}
+
 // initReleaseRepo creates a temp git repo with a bare remote, an initial commit
 // on main, and an existing v0.1.0 tag, suitable for testing Release().
 func initReleaseRepo(t *testing.T) string {

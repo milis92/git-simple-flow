@@ -50,9 +50,10 @@ func TestConfirm(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u := &UI{
-				Out:   &bytes.Buffer{},
-				In:    strings.NewReader(tt.input),
-				theme: DefaultTheme(),
+				Out:         &bytes.Buffer{},
+				In:          strings.NewReader(tt.input),
+				Interactive: true,
+				theme:       DefaultTheme(),
 			}
 			got, err := u.Confirm("Continue?")
 			if (err != nil) != tt.wantErr {
@@ -68,9 +69,10 @@ func TestConfirm(t *testing.T) {
 
 func TestConfirmBrokenReader(t *testing.T) {
 	u := &UI{
-		Out:   &bytes.Buffer{},
-		In:    &failingReader{},
-		theme: DefaultTheme(),
+		Out:         &bytes.Buffer{},
+		In:          &failingReader{},
+		Interactive: true,
+		theme:       DefaultTheme(),
 	}
 	got, err := u.Confirm("Continue?")
 	if got != false {
@@ -84,9 +86,10 @@ func TestConfirmBrokenReader(t *testing.T) {
 func TestConfirmPromptOutput(t *testing.T) {
 	var buf bytes.Buffer
 	u := &UI{
-		Out:   &buf,
-		In:    strings.NewReader("n\n"),
-		theme: DefaultTheme(),
+		Out:         &buf,
+		In:          strings.NewReader("n\n"),
+		Interactive: true,
+		theme:       DefaultTheme(),
 	}
 	_, _ = u.Confirm("Deploy?")
 	if !strings.Contains(buf.String(), "Deploy?") {
@@ -102,6 +105,7 @@ func TestConfirmAutoConfirm(t *testing.T) {
 	u := &UI{
 		Out:         &buf,
 		In:          strings.NewReader(""),
+		Interactive: true,
 		AutoConfirm: true,
 		theme:       DefaultTheme(),
 	}
@@ -114,6 +118,29 @@ func TestConfirmAutoConfirm(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "auto-confirmed") {
 		t.Errorf("output should contain 'auto-confirmed', got %q", buf.String())
+	}
+}
+
+func TestConfirmNonInteractiveRequiresYes(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:   &buf,
+		In:    strings.NewReader("y\n"),
+		theme: DefaultTheme(),
+	}
+
+	got, err := u.Confirm("Deploy?")
+	if got {
+		t.Error("Confirm() = true, want false when prompting is disabled")
+	}
+	if !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("Confirm() error = %v, want ErrConfirmationRequired", err)
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("Confirm() error = %q, want guidance to rerun with --yes", err.Error())
+	}
+	if !strings.Contains(buf.String(), "skipped (non-interactive; rerun with --yes)") {
+		t.Fatalf("Confirm() output = %q, want non-interactive skip message", buf.String())
 	}
 }
 

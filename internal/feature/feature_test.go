@@ -170,6 +170,54 @@ func TestFinishInteractiveCancelsInFlightMerge(t *testing.T) {
 	}
 }
 
+func TestFinishClassicBlocksPendingOrCancelledChecks(t *testing.T) {
+	tests := []struct {
+		name       string
+		checksJSON string
+		want       string
+	}{
+		{
+			name:       "pending checks block merge",
+			checksJSON: `[{"name":"build","status":"in_progress","conclusion":""}]`,
+			want:       "PR checks still running: build (use --force to override)",
+		},
+		{
+			name:       "cancelled checks block merge",
+			checksJSON: `[{"name":"lint","status":"completed","conclusion":"cancelled"}]`,
+			want:       "PR checks failed: lint (use --force to override)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoDir := initFeatureRepo(t)
+			installChecksGH(t, tt.checksJSON)
+
+			r := runner.NewRunner(false, false)
+			u := ui.New()
+			u.Out = &bytes.Buffer{}
+			u.Interactive = false
+
+			svc := &Service{
+				Git:            git.New(r, repoDir),
+				GH:             gh.New(r),
+				UI:             u,
+				Config:         config.Defaults(),
+				RunTitlePrompt: ui.RunTitlePrompt,
+				RunProgress:    ui.RunProgress,
+			}
+
+			err := svc.Finish(FinishOpts{})
+			if err == nil {
+				t.Fatal("Finish() error = nil, want checks gate failure")
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("Finish() error = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
 func initFeatureRepo(t *testing.T) string {
 	t.Helper()
 
@@ -233,6 +281,32 @@ exit 1
 	t.Setenv("GIT_SF_TEST_HELPER", os.Args[0])
 	t.Setenv("MERGE_STARTED_FILE", mergeStartedPath)
 	t.Setenv("MERGE_DONE_FILE", mergeDonePath)
+}
+
+func installChecksGH(t *testing.T, checksJSON string) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n" +
+		"  echo '{\"number\":123,\"title\":\"Feature PR\",\"state\":\"OPEN\",\"url\":\"https://example.com/pr/123\",\"isDraft\":false}'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"checks\" ]; then\n" +
+		"  echo '" + checksJSON + "'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"echo \"unexpected gh command: $*\" >&2\n" +
+		"exit 1\n"
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }
 
 func waitForFile(t *testing.T, path string, timeout time.Duration) {
