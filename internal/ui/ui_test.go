@@ -75,3 +75,22 @@ func TestConfirmPromptOutput(t *testing.T) {
 		t.Errorf("prompt should contain [y/N], got %q", buf.String())
 	}
 }
+
+func TestConfirmAutoConfirm(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:         &buf,
+		In:          strings.NewReader(""),
+		AutoConfirm: true,
+	}
+	got, err := u.Confirm("Deploy?")
+	if err != nil {
+		t.Errorf("Confirm() error = %v, want nil", err)
+	}
+	if !got {
+		t.Error("Confirm() = false, want true when AutoConfirm is set")
+	}
+	if !strings.Contains(buf.String(), "auto-confirmed") {
+		t.Errorf("output should contain 'auto-confirmed', got %q", buf.String())
+	}
+}

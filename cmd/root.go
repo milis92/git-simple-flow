@@ -16,6 +16,7 @@ var (
 	dryRun        bool
 	verbose       bool
 	noInteractive bool
+	autoConfirm   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -58,6 +59,7 @@ func newUI() *ui.UI {
 	u := ui.New()
 	isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
 	u.Interactive = ui.ShouldInteract(isTTY, noInteractive)
+	u.AutoConfirm = autoConfirm
 	return u
 }
 
@@ -65,4 +67,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print commands without executing them")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "print commands as they execute")
 	rootCmd.PersistentFlags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive prompts")
+	rootCmd.PersistentFlags().BoolVar(&autoConfirm, "yes", false, "auto-confirm all prompts")
 }

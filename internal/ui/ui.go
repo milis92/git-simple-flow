@@ -28,6 +28,8 @@ type UI struct {
 	In io.Reader
 	// Interactive indicates whether interactive prompts (Huh forms) should be used.
 	Interactive bool
+	// AutoConfirm, when true, skips confirmation prompts and returns true.
+	AutoConfirm bool
 }
 
 // New creates a UI that writes to stdout and reads from stdin.
@@ -83,6 +85,10 @@ func (u *UI) Result(msg string) {
 // Confirm prints a y/N prompt and reads a single line from stdin.
 // Returns true if the user answers "y", "Y", or "yes".
 func (u *UI) Confirm(msg string) (bool, error) {
+	if u.AutoConfirm {
+		_, _ = fmt.Fprintf(u.Out, "  %s [y/N] y (auto-confirmed)\n", msg)
+		return true, nil
+	}
 	_, _ = fmt.Fprintf(u.Out, "  %s [y/N] ", msg)
 	var response string
 	_, err := fmt.Fscanln(u.In, &response)
