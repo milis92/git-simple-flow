@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -225,8 +226,8 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(StepCallb
 		defer func() {
 			if r := recover(); r != nil {
 				safeSend(StepFailedMsg{Err: fmt.Sprintf("panic: %v", r)})
+				errCh <- fmt.Errorf("workflow panicked: %v\n%s", r, debug.Stack())
 				safeSend(WorkflowDone{})
-				errCh <- fmt.Errorf("workflow panicked: %v", r)
 			}
 		}()
 		cb := StepCallbacks{
