@@ -408,9 +408,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		cb.Start()
 		if ghErr := gh.CheckGHInstalled(); ghErr == nil {
 			if authErr := s.GH.CheckAuthenticated(); authErr == nil {
-				if err := s.GH.ClosePR(reason); err != nil {
-					// soft fail — PR may not exist
-				}
+				_ = s.GH.ClosePR(reason) // soft fail — PR may not exist
 			}
 		}
 		cb.Done()
