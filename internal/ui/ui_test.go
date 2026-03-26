@@ -56,8 +56,8 @@ func TestConfirmBrokenReader(t *testing.T) {
 	if got != false {
 		t.Errorf("Confirm() = %v, want false", got)
 	}
-	if err != nil {
-		t.Errorf("Confirm() error = %v, want nil (errors should be swallowed)", err)
+	if err == nil {
+		t.Error("Confirm() error = nil, want error for broken reader")
 	}
 }
 

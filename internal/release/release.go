@@ -77,7 +77,10 @@ func (s *Service) Release(scope string) error {
 	s.UI.Blank()
 
 	confirmed, err := s.UI.Confirm("Confirm release?")
-	if err != nil || !confirmed {
+	if err != nil {
+		return err
+	}
+	if !confirmed {
 		s.UI.Muted("Aborted.")
 		return nil
 	}

@@ -193,7 +193,10 @@ func (s *Service) Finish(opts FinishOpts) error {
 	}
 
 	confirmed, err := s.UI.Confirm(fmt.Sprintf("Merge PR #%d — %q?", pr.Number, pr.Title))
-	if err != nil || !confirmed {
+	if err != nil {
+		return err
+	}
+	if !confirmed {
 		s.UI.Muted("Aborted.")
 		return nil
 	}
@@ -278,7 +281,10 @@ func (s *Service) Discard(reason string) error {
 	}
 
 	confirmed, err := s.UI.Confirm("Discard branch " + branch + "?")
-	if err != nil || !confirmed {
+	if err != nil {
+		return err
+	}
+	if !confirmed {
 		s.UI.Muted("Aborted.")
 		return nil
 	}
