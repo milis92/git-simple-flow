@@ -3,3 +3,4 @@ coverage.out
 /docs/superpowers/
 .idea/
 .claude/hooks/post-tool-call.py
+.claude/worktrees/

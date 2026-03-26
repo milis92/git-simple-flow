@@ -33,44 +33,29 @@ nfpms:
       - deb
       - rpm
 
-snapcrafts:
-  - name: git-sf
-    summary: Simple Git Flow — all the structure, none of the ceremony
-    description: |
-      A Git branching model that sits between Git Flow and GitHub Flow. Feature branches with semver versioning built in.
-      Manage feature branches, hotfixes, and semver releases with simple commands.
-    grade: stable
-    confinement: classic
-    license: MIT
-    apps:
-      git-sf:
-        command: git-sf
-
-brews:
-  - repository:
-      owner: milis92
-      name: homebrew-tap
-    name: git-sf
-    homepage: https://github.com/milis92/git-simple-flow
-    description: Simple Git Flow — all the structure, none of the ceremony
-    license: MIT
-
-scoops:
-  - repository:
-      owner: milis92
-      name: scoop-bucket
-    name: git-sf
-    homepage: https://github.com/milis92/git-simple-flow
-    description: Simple Git Flow — all the structure, none of the ceremony
-    license: MIT
-
 checksum:
   name_template: checksums.txt
 
 changelog:
   sort: asc
+  use: github
+  groups:
+    - title: Added
+      regexp: '^.*?feat(\(.+\))?\!?:.+$'
+      order: 0
+    - title: Fixed
+      regexp: '^.*?fix(\(.+\))?\!?:.+$'
+      order: 1
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))?\!?:.+$'
+      order: 2
+    - title: Changed
+      regexp: '^.*?(refactor|style)(\(.+\))?\!?:.+$'
+      order: 3
+    - title: CI
+      regexp: '^.*?ci(\(.+\))?\!?:.+$'
+      order: 4
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
+      - '^test'
+      - '^chore'
