@@ -1,7 +1,12 @@
 package gh
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/milis92/git-simple-flow/internal/runner"
 )
 
 func TestCheckGHInstalled(t *testing.T) {
@@ -30,4 +35,56 @@ func TestHumanizeBranchName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetCurrentPRWrapsNoPRAsErrNoPR(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "no pull requests found for branch" >&2
+  exit 1
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	_, err := client.GetCurrentPR()
+	if err == nil {
+		t.Fatal("GetCurrentPR() error = nil, want ErrNoPR")
+	}
+	if !errors.Is(err, ErrNoPR) {
+		t.Fatalf("GetCurrentPR() error = %v, want wrapped ErrNoPR", err)
+	}
+}
+
+func TestGetCurrentPRDoesNotWrapUnexpectedErrorsAsErrNoPR(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "GraphQL API unavailable" >&2
+  exit 1
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	_, err := client.GetCurrentPR()
+	if err == nil {
+		t.Fatal("GetCurrentPR() error = nil, want command error")
+	}
+	if errors.Is(err, ErrNoPR) {
+		t.Fatalf("GetCurrentPR() error = %v, should not wrap ErrNoPR for unrelated failures", err)
+	}
+}
+
+func installFakeGH(t *testing.T, script string) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }

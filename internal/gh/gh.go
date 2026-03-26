@@ -95,7 +95,10 @@ func (g *GH) ClosePR(reason string) error {
 func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	out, err := g.runner.Run("gh", "pr", "view", "--json", "number,title,state,url,isDraft")
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrNoPR, err)
+		if isNoPRViewError(err) {
+			return nil, fmt.Errorf("%w: %s", ErrNoPR, err)
+		}
+		return nil, err
 	}
 	var pr PRInfo
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
@@ -104,11 +107,54 @@ func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	return &pr, nil
 }
 
+func isNoPRViewError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no pull requests found") ||
+		strings.Contains(msg, "no pull request found")
+}
+
 // CheckStatus holds the result of a single CI check on a PR.
 type CheckStatus struct {
 	Name       string
 	Status     string // e.g. "completed", "in_progress"
 	Conclusion string // e.g. "success", "failure"
+}
+
+// CheckIsPending reports whether the check has not reached a completed state yet.
+func CheckIsPending(check CheckStatus) bool {
+	return check.Status != "completed"
+}
+
+// CheckAllowsMerge reports whether a completed check should be treated as
+// passing for merge gating purposes.
+func CheckAllowsMerge(check CheckStatus) bool {
+	return !CheckIsPending(check) && isPassingConclusion(check.Conclusion)
+}
+
+func isPassingConclusion(conclusion string) bool {
+	switch conclusion {
+	case "success", "neutral", "skipped":
+		return true
+	default:
+		return false
+	}
+}
+
+// ClassifyChecks splits checks into merge-blocking failures and in-progress checks.
+func ClassifyChecks(checks []CheckStatus) (failing, pending []string) {
+	for _, check := range checks {
+		switch {
+		case CheckIsPending(check):
+			pending = append(pending, check.Name)
+		case !CheckAllowsMerge(check):
+			failing = append(failing, check.Name)
+		}
+	}
+	return failing, pending
 }
 
 // GetPRChecks fetches CI check results for the current branch's PR.

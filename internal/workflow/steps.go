@@ -38,14 +38,7 @@ func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy 
 				cb.Fail(fmt.Sprintf("could not fetch PR checks: %s", err))
 				return fmt.Errorf("could not fetch PR checks: %w", err)
 			}
-			var failing, pending []string
-			for _, c := range checks {
-				if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
-					failing = append(failing, c.Name)
-				} else if c.Status != "completed" {
-					pending = append(pending, c.Name)
-				}
-			}
+			failing, pending := gh.ClassifyChecks(checks)
 			if len(failing) > 0 {
 				errMsg := fmt.Sprintf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
 				cb.Fail(errMsg)
@@ -126,11 +119,11 @@ func DiscardWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, reason string
 		// Close PR (soft fail — PR may not exist)
 		cb.Start()
 		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
-			cb.Fail("gh CLI not available — skipped")
+			cb.SkipStep("gh CLI not available — skipped")
 		} else if authErr := ctxGH.CheckAuthenticated(); authErr != nil {
-			cb.Fail("not authenticated — skipped")
+			cb.SkipStep("not authenticated — skipped")
 		} else if err := ctxGH.ClosePR(reason); err != nil {
-			cb.Fail(fmt.Sprintf("could not close PR: %s", err))
+			cb.SkipStep(fmt.Sprintf("could not close PR: %s", err))
 		} else {
 			cb.Done()
 		}

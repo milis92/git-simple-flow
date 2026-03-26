@@ -24,6 +24,7 @@ const (
 	StepActive
 	StepDone
 	StepFailed
+	StepSkipped
 )
 
 // StepDef defines a step in a multi-step workflow.
@@ -42,10 +43,11 @@ type step struct {
 
 // Messages sent to the progress model from workflow goroutines.
 type (
-	StepStartMsg  struct{}
-	StepDoneMsg   struct{}
-	StepFailedMsg struct{ Err string }
-	WorkflowDone  struct{}
+	StepStartMsg   struct{}
+	StepDoneMsg    struct{}
+	StepFailedMsg  struct{ Err string }
+	StepSkippedMsg struct{ Reason string }
+	WorkflowDone   struct{}
 )
 
 // ProgressModel is the Bubble Tea model for multi-step workflow progress.
@@ -114,6 +116,14 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case StepSkippedMsg:
+		if m.current >= 0 && m.current < len(m.steps) && m.steps[m.current].status == StepActive {
+			m.steps[m.current].status = StepSkipped
+			m.steps[m.current].elapsed = time.Since(m.steps[m.current].startedAt)
+			m.steps[m.current].errMsg = msg.Reason
+		}
+		return m, nil
+
 	case WorkflowDone:
 		m.done = true
 		return m, tea.Quit
@@ -155,6 +165,8 @@ func (m ProgressModel) View() string {
 			icon = m.theme.Success.Render(m.theme.IconDone)
 		case StepActive:
 			icon = m.spinner.View()
+		case StepSkipped:
+			icon = m.theme.Warning.Render(m.theme.IconWarning)
 		case StepFailed:
 			icon = m.theme.Error.Render(m.theme.IconFail)
 		default:
@@ -177,8 +189,13 @@ func (m ProgressModel) View() string {
 		}
 		b.WriteString("\n")
 
-		if s.status == StepFailed && s.errMsg != "" {
-			b.WriteString("    " + m.theme.Error.Render(s.errMsg) + "\n")
+		if s.errMsg != "" {
+			switch s.status {
+			case StepFailed:
+				b.WriteString("    " + m.theme.Error.Render(s.errMsg) + "\n")
+			case StepSkipped:
+				b.WriteString("    " + m.theme.Muted.Render(s.errMsg) + "\n")
+			}
 		}
 	}
 
@@ -218,6 +235,7 @@ type StepCallbacks struct {
 	Start func()
 	Done  func()
 	Fail  func(err string)
+	Skip  func(reason string)
 }
 
 // Run executes fn as the current step. It calls Start before fn and
@@ -237,10 +255,21 @@ func (cb StepCallbacks) Run(fn func() error) error {
 func (cb StepCallbacks) RunSoftFail(fn func() error) {
 	cb.Start()
 	if err := fn(); err != nil {
-		cb.Fail(err.Error())
+		cb.SkipStep(err.Error())
 	} else {
 		cb.Done()
 	}
+}
+
+// SkipStep marks the current step as skipped when the workflow can continue.
+// If Skip is not provided, it falls back to Done so soft-fail paths do not
+// escalate to a hard failure.
+func (cb StepCallbacks) SkipStep(reason string) {
+	if cb.Skip != nil {
+		cb.Skip(reason)
+		return
+	}
+	cb.Done()
 }
 
 // RunProgress runs a Bubble Tea progress view while executing the workflow function.
@@ -287,6 +316,7 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 			Start: func() { safeSend(StepStartMsg{}) },
 			Done:  func() { safeSend(StepDoneMsg{}) },
 			Fail:  func(err string) { safeSend(StepFailedMsg{Err: err}) },
+			Skip:  func(reason string) { safeSend(StepSkippedMsg{Reason: reason}) },
 		}
 		errCh <- workflow(ctx, cb)
 		safeSend(WorkflowDone{})

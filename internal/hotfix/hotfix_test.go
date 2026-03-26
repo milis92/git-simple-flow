@@ -159,6 +159,11 @@ func TestFinishClassicBlocksPendingOrCancelledChecks(t *testing.T) {
 			checksJSON: `[{"name":"lint","status":"completed","conclusion":"cancelled"}]`,
 			want:       "PR checks failed: lint (use --force to override)",
 		},
+		{
+			name:       "timed out checks block merge",
+			checksJSON: `[{"name":"integration","status":"completed","conclusion":"timed_out"}]`,
+			want:       "PR checks failed: integration (use --force to override)",
+		},
 	}
 
 	for _, tt := range tests {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -110,6 +111,55 @@ func TestStepCallbacksType(t *testing.T) {
 	}
 	if failedMsg != "something broke" {
 		t.Errorf("failedMsg = %q, want %q", failedMsg, "something broke")
+	}
+}
+
+func TestStepCallbacksRunSoftFailSkipsInsteadOfFailing(t *testing.T) {
+	var started, completed, skipped, failed int
+	var skipReason string
+
+	sc := StepCallbacks{
+		Start: func() { started++ },
+		Done:  func() { completed++ },
+		Fail:  func(string) { failed++ },
+		Skip: func(reason string) {
+			skipped++
+			skipReason = reason
+		},
+	}
+
+	sc.RunSoftFail(func() error { return errors.New("not authenticated — skipped") })
+
+	if started != 1 {
+		t.Fatalf("started = %d, want 1", started)
+	}
+	if completed != 0 {
+		t.Fatalf("completed = %d, want 0", completed)
+	}
+	if failed != 0 {
+		t.Fatalf("failed = %d, want 0", failed)
+	}
+	if skipped != 1 {
+		t.Fatalf("skipped = %d, want 1", skipped)
+	}
+	if skipReason != "not authenticated — skipped" {
+		t.Fatalf("skipReason = %q, want %q", skipReason, "not authenticated — skipped")
+	}
+}
+
+func TestProgressModelSkippedStepDoesNotCountAsFailure(t *testing.T) {
+	m := NewProgressModel("Test", "branch", []StepDef{{Label: "Close PR"}})
+
+	updated, _ := m.Update(StepStartMsg{})
+	m = updated.(ProgressModel)
+	updated, _ = m.Update(StepSkippedMsg{Reason: "not authenticated — skipped"})
+	m = updated.(ProgressModel)
+
+	if m.steps[0].status != StepSkipped {
+		t.Fatalf("step status = %d, want StepSkipped", m.steps[0].status)
+	}
+	if m.hasFailed() {
+		t.Fatal("hasFailed() = true, want false for skipped steps")
 	}
 }
 
