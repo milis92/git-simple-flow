@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	dryRun  bool
-	verbose bool
+	dryRun        bool
+	verbose       bool
+	noInteractive bool
 )
 
 var rootCmd = &cobra.Command{
@@ -54,4 +55,5 @@ func loadConfig() config.Config {
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print commands without executing them")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "print commands as they execute")
+	rootCmd.PersistentFlags().BoolVar(&noInteractive, "no-interactive", false, "disable interactive prompts")
 }
