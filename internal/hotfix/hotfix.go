@@ -186,6 +186,140 @@ func (s *Service) Finish(opts FinishOpts) error {
 		return err
 	}
 
+	if s.UI.Interactive {
+		return s.finishInteractive(branch, opts)
+	}
+	return s.finishClassic(branch, opts)
+}
+
+// finishInteractive runs the hotfix finish workflow with a Bubble Tea progress view.
+func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
+	defs := []ui.StepDef{
+		{Label: "Find PR"},
+		{Label: "Check CI"},
+		{Label: "Merge PR"},
+		{Label: "Switch to " + s.Config.MainBranch},
+		{Label: "Pull latest"},
+		{Label: "Delete local branch"},
+		{Label: "Delete remote branch"},
+	}
+
+	if opts.Release || s.Config.HotfixAutoRelease {
+		defs = append(defs,
+			ui.StepDef{Label: "Create patch tag"},
+			ui.StepDef{Label: "Push tag"},
+		)
+	}
+
+	return ui.RunProgress("git sf hotfix finish", branch, defs, func(cb ui.StepCallbacks) error {
+		// Step: Find PR
+		cb.Start()
+		pr, err := s.GH.GetCurrentPR()
+		if err != nil {
+			cb.Fail("no PR found — run 'git sf hotfix publish' first")
+			return fmt.Errorf("no PR found — run 'git sf hotfix publish' first")
+		}
+		cb.Done()
+
+		// Step: Check CI
+		cb.Start()
+		if opts.Force {
+			cb.Done()
+		} else {
+			checks, err := s.GH.GetPRChecks()
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			var failing []string
+			for _, c := range checks {
+				if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
+					failing = append(failing, c.Name)
+				}
+			}
+			if len(failing) > 0 {
+				msg := fmt.Sprintf("checks failed: %s (use --force to override)", strings.Join(failing, ", "))
+				cb.Fail(msg)
+				return fmt.Errorf("PR has failing checks. Fix them or use --force to merge anyway")
+			}
+			cb.Done()
+		}
+
+		// Step: Merge PR
+		cb.Start()
+		if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step: Switch to <main>
+		cb.Start()
+		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step: Pull latest
+		cb.Start()
+		if err := s.Git.Pull(); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step: Delete local branch
+		cb.Start()
+		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step: Delete remote branch (soft — always call cb.Done())
+		cb.Start()
+		_ = s.Git.DeleteRemoteBranch(branch)
+		cb.Done()
+
+		// Optional release steps
+		if opts.Release || s.Config.HotfixAutoRelease {
+			// Step: Create patch tag
+			cb.Start()
+			tag, err := s.Git.LatestTag(s.Config.TagPrefix)
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			next, _ := current.Bump("patch")
+			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
+			if err := s.Git.Tag(newTag); err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			cb.Done()
+
+			// Step: Push tag
+			cb.Start()
+			if err := s.Git.PushTag(newTag); err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			cb.Done()
+		}
+
+		_ = pr
+		return nil
+	})
+}
+
+// finishClassic runs the hotfix finish workflow with print-style output.
+func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 	pr, err := s.GH.GetCurrentPR()
 	if err != nil {
 		return fmt.Errorf("no PR found for this branch. Run 'git sf hotfix publish' first")
