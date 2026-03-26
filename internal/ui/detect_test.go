@@ -28,3 +28,10 @@ func TestShouldInteractReturnsFalseWhenNotTTY(t *testing.T) {
 		t.Error("ShouldInteract should return false when isTTY is false")
 	}
 }
+
+func TestShouldInteractReturnsTrueWhenTTYAndNotDisabled(t *testing.T) {
+	result := ShouldInteract(true, false)
+	if !result {
+		t.Error("ShouldInteract should return true when isTTY is true and noInteractive is false")
+	}
+}

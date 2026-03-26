@@ -148,3 +148,47 @@ func TestWriteDefaultsExistingFileErrors(t *testing.T) {
 		t.Error("expected error when file already exists")
 	}
 }
+
+func TestWriteConfigRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	cfg := Config{
+		MainBranch:         "develop",
+		TagPrefix:          "release-",
+		FeaturePrefix:      "feat/",
+		HotfixPrefix:       "fix/",
+		MergeStrategy:      "rebase",
+		DefaultReleaseBump: "patch",
+		DraftPROnStart:     true,
+		HotfixAutoRelease:  true,
+	}
+
+	if err := WriteConfig(path, cfg); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile() error = %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadFromFile() returned nil")
+	}
+
+	if loaded.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", loaded.MainBranch, "develop")
+	}
+	if loaded.FeaturePrefix != "feat/" {
+		t.Errorf("FeaturePrefix = %q, want %q", loaded.FeaturePrefix, "feat/")
+	}
+	if loaded.MergeStrategy != "rebase" {
+		t.Errorf("MergeStrategy = %q, want %q", loaded.MergeStrategy, "rebase")
+	}
+	if loaded.DraftPROnStart == nil || !*loaded.DraftPROnStart {
+		t.Error("DraftPROnStart should be true")
+	}
+	if loaded.HotfixAutoRelease == nil || !*loaded.HotfixAutoRelease {
+		t.Error("HotfixAutoRelease should be true")
+	}
+}
