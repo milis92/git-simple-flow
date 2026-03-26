@@ -76,24 +76,20 @@ func (s *Service) Show() error {
 				if checks, err := s.GH.GetPRChecks(); err != nil {
 					s.UI.Muted(fmt.Sprintf("Could not fetch PR checks: %s", err))
 				} else if len(checks) > 0 {
-					passing, failing, pending := 0, 0, 0
+					failingChecks, pendingChecks := gh.ClassifyChecks(checks)
+					passing := 0
 					for _, c := range checks {
-						switch c.Conclusion {
-						case "success":
+						if gh.CheckAllowsMerge(c) {
 							passing++
-						case "failure":
-							failing++
-						default:
-							pending++
 						}
 					}
 					total := len(checks)
 					status := fmt.Sprintf("%d/%d passing", passing, total)
-					if failing > 0 {
-						status += fmt.Sprintf(", %d failing", failing)
+					if len(failingChecks) > 0 {
+						status += fmt.Sprintf(", %d failing", len(failingChecks))
 					}
-					if pending > 0 {
-						status += fmt.Sprintf(", %d pending", pending)
+					if len(pendingChecks) > 0 {
+						status += fmt.Sprintf(", %d pending", len(pendingChecks))
 					}
 					_, _ = fmt.Fprintf(s.UI.Out, "  Checks:     %s\n", status)
 				}
