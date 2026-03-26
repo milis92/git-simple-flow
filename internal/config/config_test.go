@@ -68,6 +68,62 @@ func TestLoadFromFileMissing(t *testing.T) {
 	}
 }
 
+func TestSanitizePartialKeepsValidFieldsAndClearsInvalidEnums(t *testing.T) {
+	draftPR := true
+	cfg := &PartialConfig{
+		MainBranch:         "develop",
+		FeaturePrefix:      "feat/",
+		MergeStrategy:      "fast-forward",
+		DefaultReleaseBump: "tiny",
+		DraftPROnStart:     &draftPR,
+	}
+
+	sanitized, warnings := SanitizePartial(cfg)
+
+	if len(warnings) != 2 {
+		t.Fatalf("warnings count = %d, want 2", len(warnings))
+	}
+	if sanitized.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", sanitized.MainBranch, "develop")
+	}
+	if sanitized.FeaturePrefix != "feat/" {
+		t.Errorf("FeaturePrefix = %q, want %q", sanitized.FeaturePrefix, "feat/")
+	}
+	if sanitized.MergeStrategy != "" {
+		t.Errorf("MergeStrategy = %q, want empty after sanitization", sanitized.MergeStrategy)
+	}
+	if sanitized.DefaultReleaseBump != "" {
+		t.Errorf("DefaultReleaseBump = %q, want empty after sanitization", sanitized.DefaultReleaseBump)
+	}
+	if sanitized.DraftPROnStart == nil || !*sanitized.DraftPROnStart {
+		t.Fatal("DraftPROnStart should be preserved")
+	}
+
+	merged := Merge(Defaults(), sanitized)
+	if err := merged.Validate(); err != nil {
+		t.Fatalf("merged config should remain valid after sanitization, got %v", err)
+	}
+	if merged.MainBranch != "develop" {
+		t.Errorf("merged MainBranch = %q, want %q", merged.MainBranch, "develop")
+	}
+	if merged.MergeStrategy != "squash" {
+		t.Errorf("merged MergeStrategy = %q, want default %q", merged.MergeStrategy, "squash")
+	}
+	if merged.DefaultReleaseBump != "minor" {
+		t.Errorf("merged DefaultReleaseBump = %q, want default %q", merged.DefaultReleaseBump, "minor")
+	}
+}
+
+func TestSanitizePartialNil(t *testing.T) {
+	sanitized, warnings := SanitizePartial(nil)
+	if sanitized != nil {
+		t.Fatalf("sanitized = %#v, want nil", sanitized)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings count = %d, want 0", len(warnings))
+	}
+}
+
 func TestMerge(t *testing.T) {
 	base := Defaults()
 	global := &PartialConfig{MergeStrategy: "rebase"}

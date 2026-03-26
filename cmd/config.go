@@ -81,13 +81,30 @@ var configEditCmd = &cobra.Command{
 			return fmt.Errorf("config edit requires an interactive terminal (remove --no-interactive or edit .sfconfig.yml directly)")
 		}
 
-		global, globalErr := loadGlobalConfig()
-		if globalErr != nil {
-			u.Muted(fmt.Sprintf("Could not load global config: %s", globalErr))
+		globalPath, pathErr := globalConfigPath()
+		if pathErr != nil {
+			u.Muted(fmt.Sprintf("Could not determine home directory: %s", pathErr))
 		}
-		repo, repoErr := config.LoadFromFile(path)
+
+		var global *config.PartialConfig
+		if globalPath != "" {
+			var warnings []error
+			var loadErr error
+			global, warnings, loadErr = loadPartialConfig(globalPath)
+			if loadErr != nil {
+				u.Muted(fmt.Sprintf("Could not load global config %s: %s", globalPath, loadErr))
+			}
+			for _, warning := range warnings {
+				u.Muted(fmt.Sprintf("Ignoring invalid global config %s: %s", globalPath, warning))
+			}
+		}
+
+		repo, repoWarnings, repoErr := loadPartialConfig(path)
 		if repoErr != nil {
 			return fmt.Errorf("could not load repo config: %w", repoErr)
+		}
+		for _, warning := range repoWarnings {
+			u.Muted(fmt.Sprintf("Ignoring invalid repo config %s: %s", path, warning))
 		}
 
 		inherited := config.Merge(config.Defaults(), global)
@@ -131,14 +148,32 @@ var configCmd = &cobra.Command{
 		repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
 
 		// Load individual layers to show source
-		global, globalErr := loadGlobalConfig()
-		if globalErr != nil {
-			u.Muted(fmt.Sprintf("Could not load global config: %s", globalErr))
+		globalPath, pathErr := globalConfigPath()
+		if pathErr != nil {
+			u.Muted(fmt.Sprintf("Could not determine home directory: %s", pathErr))
 		}
-		repo, repoErr := config.LoadFromFile(repoPath)
+
+		var global *config.PartialConfig
+		if globalPath != "" {
+			var warnings []error
+			var loadErr error
+			global, warnings, loadErr = loadPartialConfig(globalPath)
+			if loadErr != nil {
+				u.Muted(fmt.Sprintf("Could not load global config %s: %s", globalPath, loadErr))
+			}
+			for _, warning := range warnings {
+				u.Muted(fmt.Sprintf("Ignoring invalid global config %s: %s", globalPath, warning))
+			}
+		}
+
+		repo, repoWarnings, repoErr := loadPartialConfig(repoPath)
 		if repoErr != nil {
-			u.Muted(fmt.Sprintf("Could not load repo config: %s", repoErr))
+			u.Muted(fmt.Sprintf("Could not load repo config %s: %s", repoPath, repoErr))
 		}
+		for _, warning := range repoWarnings {
+			u.Muted(fmt.Sprintf("Ignoring invalid repo config %s: %s", repoPath, warning))
+		}
+
 		cfg := config.Merge(config.Defaults(), global, repo)
 
 		u.Blank()
@@ -162,15 +197,6 @@ var configCmd = &cobra.Command{
 
 		return nil
 	},
-}
-
-func loadGlobalConfig() (*config.PartialConfig, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
-	return config.LoadFromFile(globalPath)
 }
 
 // detectBranches returns the list of branches in the repository. If git branch

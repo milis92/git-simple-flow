@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/milis92/git-simple-flow/internal/config"
@@ -9,6 +11,35 @@ import (
 
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+func TestLoadPartialConfigSanitizesInvalidEnums(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	content := []byte("main_branch: develop\nmerge_strategy: fast-forward\ndefault_release_bump: tiny\n")
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, warnings, err := loadPartialConfig(path)
+	if err != nil {
+		t.Fatalf("loadPartialConfig() error = %v", err)
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("warnings count = %d, want 2", len(warnings))
+	}
+	if cfg == nil {
+		t.Fatal("loadPartialConfig() returned nil config")
+	}
+	if cfg.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", cfg.MainBranch, "develop")
+	}
+	if cfg.MergeStrategy != "" {
+		t.Errorf("MergeStrategy = %q, want empty after sanitization", cfg.MergeStrategy)
+	}
+	if cfg.DefaultReleaseBump != "" {
+		t.Errorf("DefaultReleaseBump = %q, want empty after sanitization", cfg.DefaultReleaseBump)
+	}
 }
 
 func TestBuildRepoConfigForEditPreservesUntouchedFields(t *testing.T) {

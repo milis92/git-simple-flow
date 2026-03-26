@@ -39,6 +39,24 @@ type PartialConfig struct {
 	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release,omitempty"`
 }
 
+func isValidMergeStrategy(value string) bool {
+	switch value {
+	case "squash", "merge", "rebase":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidReleaseBump(value string) bool {
+	switch value {
+	case "minor", "patch", "major":
+		return true
+	default:
+		return false
+	}
+}
+
 // Validate checks that enum-like fields contain valid values and that
 // required fields are non-empty. It returns an error describing the first
 // invalid field it finds.
@@ -46,14 +64,10 @@ func (c Config) Validate() error {
 	if c.MainBranch == "" {
 		return fmt.Errorf("main_branch must not be empty")
 	}
-	switch c.MergeStrategy {
-	case "squash", "merge", "rebase":
-	default:
+	if !isValidMergeStrategy(c.MergeStrategy) {
 		return fmt.Errorf("invalid merge_strategy %q: must be squash, merge, or rebase", c.MergeStrategy)
 	}
-	switch c.DefaultReleaseBump {
-	case "minor", "patch", "major":
-	default:
+	if !isValidReleaseBump(c.DefaultReleaseBump) {
 		return fmt.Errorf("invalid default_release_bump %q: must be minor, patch, or major", c.DefaultReleaseBump)
 	}
 	if c.FeaturePrefix == "" {
@@ -97,6 +111,36 @@ func LoadFromFile(path string) (*PartialConfig, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// SanitizePartial removes invalid enum-like fields from a partial config while
+// preserving the rest of the layer. Returned warnings describe each ignored
+// field so callers can surface them to the user.
+func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	sanitized := *cfg
+	var warnings []error
+
+	if sanitized.MergeStrategy != "" && !isValidMergeStrategy(sanitized.MergeStrategy) {
+		warnings = append(warnings, fmt.Errorf(
+			"invalid merge_strategy %q: must be squash, merge, or rebase",
+			sanitized.MergeStrategy,
+		))
+		sanitized.MergeStrategy = ""
+	}
+
+	if sanitized.DefaultReleaseBump != "" && !isValidReleaseBump(sanitized.DefaultReleaseBump) {
+		warnings = append(warnings, fmt.Errorf(
+			"invalid default_release_bump %q: must be minor, patch, or major",
+			sanitized.DefaultReleaseBump,
+		))
+		sanitized.DefaultReleaseBump = ""
+	}
+
+	return &sanitized, warnings
 }
 
 // Merge applies partial config layers onto a base in order, overriding only

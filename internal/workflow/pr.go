@@ -24,12 +24,13 @@ func ResolvePRInput(
 			defaultTitle = gh.HumanizeBranchName(branch, prefix)
 		}
 
-		result, err := runPrompt(defaultTitle, includeBody)
+		promptBody := includeBody && body == ""
+		result, err := runPrompt(defaultTitle, promptBody)
 		if err != nil {
 			return "", "", err
 		}
 		title = result.Title
-		if includeBody && body == "" {
+		if promptBody {
 			body = result.Body
 		}
 	}
