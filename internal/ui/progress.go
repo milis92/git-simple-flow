@@ -212,28 +212,31 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(StepCallb
 
 	p := tea.NewProgram(model)
 
-	var workflowErr error
+	errCh := make(chan error, 1)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.Send(StepFailedMsg{Err: fmt.Sprintf("panic: %v", r)})
+				p.Send(WorkflowDone{})
+				errCh <- fmt.Errorf("workflow panicked: %v", r)
+			}
+		}()
 		cb := StepCallbacks{
 			Start: func() { p.Send(StepStartMsg{}) },
 			Done:  func() { p.Send(StepDoneMsg{}) },
 			Fail:  func(err string) { p.Send(StepFailedMsg{Err: err}) },
 		}
-		workflowErr = workflow(cb)
+		errCh <- workflow(cb)
 		p.Send(WorkflowDone{})
 	}()
 
-	finalModel, err := p.Run()
+	_, err := p.Run()
 	if err != nil {
 		return err
 	}
 
-	// Print summary after the TUI exits
-	m := finalModel.(ProgressModel)
-	_ = m // suppress unused warning if needed
-
-	return workflowErr
+	return <-errCh
 }
 
 // RunProgressPrint runs a workflow with print-style step output instead of
