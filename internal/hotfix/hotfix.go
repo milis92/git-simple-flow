@@ -194,9 +194,24 @@ func (s *Service) Finish(opts FinishOpts) error {
 }
 
 // finishInteractive runs the hotfix finish workflow with a Bubble Tea progress view.
+// It prompts for confirmation before launching the progress view.
 func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
+	pr, err := s.GH.GetCurrentPR()
+	if err != nil {
+		return err
+	}
+	s.UI.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
+
+	ok, err := s.UI.Confirm(fmt.Sprintf("Merge PR #%d — %q?", pr.Number, pr.Title))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		s.UI.Muted("Aborted.")
+		return nil
+	}
+
 	defs := []ui.StepDef{
-		{Label: "Find PR"},
 		{Label: "Check CI"},
 		{Label: "Merge PR"},
 		{Label: "Switch to " + s.Config.MainBranch},
@@ -212,19 +227,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		)
 	}
 
-	err := ui.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
-		// Step: Find PR
-		cb.Start()
-		if _, err := s.GH.GetCurrentPR(); err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		cb.Done()
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
+	err = ui.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		// Step: Check CI
 		cb.Start()
 		if opts.Force {
@@ -481,9 +484,17 @@ func (s *Service) Discard(reason string) error {
 }
 
 // discardInteractive runs the hotfix discard workflow using the Bubble Tea
-// progress view. It skips the confirmation prompt — the user explicitly ran
-// the discard command.
+// progress view. It prompts for confirmation before launching the progress view.
 func (s *Service) discardInteractive(branch string, reason string) error {
+	confirmed, err := s.UI.Confirm("Discard branch " + branch + "?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		s.UI.Muted("Aborted.")
+		return nil
+	}
+
 	defs := []ui.StepDef{
 		{Label: "Close PR"},
 		{Label: "Switch to " + s.Config.MainBranch},
@@ -491,7 +502,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		{Label: "Delete remote branch"},
 	}
 
-	err := ui.RunProgress("git sf hotfix discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = ui.RunProgress("git sf hotfix discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		// Step 0: Close PR (soft fail — PR may not exist)
 		cb.Start()
 		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
