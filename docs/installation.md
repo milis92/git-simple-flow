@@ -12,58 +12,73 @@
 go install github.com/milis92/git-simple-flow@latest
 ```
 
-## Latest (unstable)
+## Download
 
-Download the most recent build from `main`. These are not stable releases — use for testing or previewing upcoming features.
+Download the latest stable release binary for your platform.
 
 **Linux (amd64):**
 ```sh
-curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_linux_amd64.tar.gz | tar -xz
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_linux_amd64.tar.gz | tar -xz
 sudo mv git-sf /usr/local/bin/
 ```
 
 **Linux (arm64):**
 ```sh
-curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_linux_arm64.tar.gz | tar -xz
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_linux_arm64.tar.gz | tar -xz
 sudo mv git-sf /usr/local/bin/
 ```
 
 **macOS (Apple Silicon):**
 ```sh
-curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_darwin_arm64.tar.gz | tar -xz
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_darwin_arm64.tar.gz | tar -xz
 sudo mv git-sf /usr/local/bin/
 ```
 
 **macOS (Intel):**
 ```sh
-curl -fsSL https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_darwin_amd64.tar.gz | tar -xz
+curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_darwin_amd64.tar.gz | tar -xz
 sudo mv git-sf /usr/local/bin/
 ```
 
 **Windows (amd64):**
 
-Download [git-sf_windows_amd64.zip](https://github.com/milis92/git-simple-flow/releases/download/latest/git-sf_windows_amd64.zip), extract, and add `git-sf.exe` to your `PATH`.
+Download [git-sf_windows_amd64.zip](https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_windows_amd64.zip), extract, and add `git-sf.exe` to your `PATH`.
+
+**Windows (arm64):**
+
+Download [git-sf_windows_arm64.zip](https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_windows_arm64.zip), extract, and add `git-sf.exe` to your `PATH`.
 
 ## Package Managers
 
 ### APT (Debian / Ubuntu)
 
+> [!NOTE]
+> Package filenames include the version number, so these commands use `gh` to download the latest release automatically.
+
+**amd64:**
 ```sh
-curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_linux_amd64.deb -o git-sf.deb
+gh release download --repo milis92/git-simple-flow --pattern '*_linux_amd64.deb' --output git-sf.deb
+sudo dpkg -i git-sf.deb
+```
+
+**arm64:**
+```sh
+gh release download --repo milis92/git-simple-flow --pattern '*_linux_arm64.deb' --output git-sf.deb
 sudo dpkg -i git-sf.deb
 ```
 
 ### RPM (Fedora / RHEL)
 
+**amd64:**
 ```sh
-curl -fsSL https://github.com/milis92/git-simple-flow/releases/latest/download/git-sf_linux_amd64.rpm -o git-sf.rpm
+gh release download --repo milis92/git-simple-flow --pattern '*_linux_amd64.rpm' --output git-sf.rpm
 sudo rpm -i git-sf.rpm
 ```
 
-### Go install
-
+**arm64:**
 ```sh
-go install github.com/milis92/git-simple-flow@latest
+gh release download --repo milis92/git-simple-flow --pattern '*_linux_arm64.rpm' --output git-sf.rpm
+sudo rpm -i git-sf.rpm
 ```
 
 ## Manual Download
