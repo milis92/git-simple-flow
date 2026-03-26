@@ -169,10 +169,10 @@ func (s *Service) Publish(opts PublishOpts) error {
 	return nil
 }
 
-// Finish merges the current feature branch's PR and cleans up. It finds the
-// associated PR, verifies CI checks pass (unless Force is set), asks for
-// confirmation, merges using the configured strategy, and deletes the local
-// and remote branches.
+// Finish merges the current feature branch's PR and cleans up. It runs
+// preflight checks, detects the current branch, then routes to
+// finishInteractive (Bubble Tea progress) or finishClassic (print-style)
+// based on whether the UI is in interactive mode.
 func (s *Service) Finish(opts FinishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -195,6 +195,113 @@ func (s *Service) Finish(opts FinishOpts) error {
 		return err
 	}
 
+	if s.UI.Interactive {
+		return s.finishInteractive(branch, opts)
+	}
+	return s.finishClassic(branch, opts)
+}
+
+// finishInteractive runs the feature finish workflow using the Bubble Tea
+// progress view. It skips the confirmation prompt — the user explicitly ran
+// the finish command.
+func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
+	defs := []ui.StepDef{
+		{Label: "Find PR"},
+		{Label: "Check CI"},
+		{Label: "Merge PR"},
+		{Label: "Switch to " + s.Config.MainBranch},
+		{Label: "Pull latest"},
+		{Label: "Delete local branch"},
+		{Label: "Delete remote branch"},
+	}
+
+	if opts.Force {
+		defs[1].Label = "Check CI (skipped)"
+	}
+
+	err := ui.RunProgress("git sf feature finish", branch, defs, func(cb ui.StepCallbacks) error {
+		// Step 0: Find PR
+		cb.Start()
+		pr, err := s.GH.GetCurrentPR()
+		if err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 1: Check CI
+		cb.Start()
+		if !opts.Force {
+			checks, err := s.GH.GetPRChecks()
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			var failing []string
+			for _, c := range checks {
+				if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
+					failing = append(failing, c.Name)
+				}
+			}
+			if len(failing) > 0 {
+				errMsg := fmt.Sprintf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
+				cb.Fail(errMsg)
+				return fmt.Errorf("%s", errMsg)
+			}
+		}
+		cb.Done()
+
+		// Step 2: Merge PR
+		cb.Start()
+		if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 3: Switch to main
+		cb.Start()
+		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 4: Pull latest
+		cb.Start()
+		if err := s.Git.Pull(); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 5: Delete local branch
+		cb.Start()
+		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+			cb.Fail(err.Error())
+			return err
+		}
+		cb.Done()
+
+		// Step 6: Delete remote branch (soft fail)
+		cb.Start()
+		_ = s.Git.DeleteRemoteBranch(branch)
+		cb.Done()
+
+		_ = pr
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	s.UI.Result("Feature complete!")
+	return nil
+}
+
+// finishClassic runs the existing print-style feature finish workflow with a
+// confirmation prompt. This is used when the UI is not in interactive mode.
+func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 	pr, err := s.GH.GetCurrentPR()
 	if err != nil {
 		return err
