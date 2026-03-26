@@ -1,0 +1,1 @@
+../../../.claude-plugin/plugin/skills/git-sf-workflow/SKILL.md
