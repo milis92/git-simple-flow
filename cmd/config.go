@@ -115,7 +115,7 @@ var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Show effective configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		u := ui.New()
+		u := newUI()
 		cfg := loadConfig()
 
 		// Load individual layers to show source
