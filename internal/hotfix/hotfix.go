@@ -4,6 +4,7 @@
 package hotfix
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -211,7 +212,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		)
 	}
 
-	err := ui.RunProgress("git sf hotfix finish", branch, defs, func(cb ui.StepCallbacks) error {
+	err := ui.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		// Step: Find PR
 		cb.Start()
 		if _, err := s.GH.GetCurrentPR(); err != nil {
@@ -219,6 +220,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step: Check CI
 		cb.Start()
@@ -244,6 +249,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			cb.Done()
 		}
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step: Merge PR
 		cb.Start()
 		if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
@@ -251,6 +260,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step: Switch to <main>
 		cb.Start()
@@ -260,6 +273,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step: Pull latest
 		cb.Start()
 		if err := s.Git.Pull(); err != nil {
@@ -268,6 +285,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step: Delete local branch
 		cb.Start()
 		if err := s.Git.DeleteLocalBranch(branch); err != nil {
@@ -275,6 +296,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step: Delete remote branch (soft fail)
 		cb.Start()
@@ -286,6 +311,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Optional release steps
 		if opts.Release || s.Config.HotfixAutoRelease {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
 			// Step: Create patch tag
 			cb.Start()
 			tag, err := s.Git.LatestTag(s.Config.TagPrefix)
@@ -305,6 +334,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 				return err
 			}
 			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 
 			// Step: Push tag
 			cb.Start()
@@ -458,7 +491,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		{Label: "Delete remote branch"},
 	}
 
-	err := ui.RunProgress("git sf hotfix discard", branch, defs, func(cb ui.StepCallbacks) error {
+	err := ui.RunProgress("git sf hotfix discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		// Step 0: Close PR (soft fail — PR may not exist)
 		cb.Start()
 		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
@@ -471,6 +504,10 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 			cb.Done()
 		}
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 1: Switch to main
 		cb.Start()
 		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
@@ -479,6 +516,10 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 2: Delete local branch
 		cb.Start()
 		if err := s.Git.DeleteLocalBranch(branch); err != nil {
@@ -486,6 +527,10 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()

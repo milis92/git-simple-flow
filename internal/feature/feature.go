@@ -4,6 +4,7 @@
 package feature
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -219,7 +220,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		defs[1].Label = "Check CI (skipped)"
 	}
 
-	err := ui.RunProgress("git sf feature finish", branch, defs, func(cb ui.StepCallbacks) error {
+	err := ui.RunProgress("git sf feature finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		// Step 0: Find PR
 		cb.Start()
 		if _, err := s.GH.GetCurrentPR(); err != nil {
@@ -227,6 +228,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step 1: Check CI
 		cb.Start()
@@ -250,6 +255,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 2: Merge PR
 		cb.Start()
 		if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
@@ -257,6 +266,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step 3: Switch to main
 		cb.Start()
@@ -266,6 +279,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 4: Pull latest
 		cb.Start()
 		if err := s.Git.Pull(); err != nil {
@@ -274,6 +291,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 5: Delete local branch
 		cb.Start()
 		if err := s.Git.DeleteLocalBranch(branch); err != nil {
@@ -281,6 +302,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step 6: Delete remote branch (soft fail)
 		cb.Start()
@@ -404,7 +429,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		{Label: "Delete remote branch"},
 	}
 
-	err := ui.RunProgress("git sf feature discard", branch, defs, func(cb ui.StepCallbacks) error {
+	err := ui.RunProgress("git sf feature discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		// Step 0: Close PR (soft fail — PR may not exist)
 		cb.Start()
 		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
@@ -417,6 +442,10 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 			cb.Done()
 		}
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 1: Switch to main
 		cb.Start()
 		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
@@ -425,6 +454,10 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		}
 		cb.Done()
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Step 2: Delete local branch
 		cb.Start()
 		if err := s.Git.DeleteLocalBranch(branch); err != nil {
@@ -432,6 +465,10 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 			return err
 		}
 		cb.Done()
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()

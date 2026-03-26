@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -206,12 +207,16 @@ type StepCallbacks struct {
 }
 
 // RunProgress runs a Bubble Tea progress view while executing the workflow function.
-// The workflow function receives StepCallbacks to signal step transitions.
+// The workflow function receives a context and StepCallbacks to signal step transitions.
+// The context is cancelled when Bubble Tea exits, allowing workflows to bail out early.
 // Returns an error if the workflow fails.
-func RunProgress(title, subtitle string, defs []StepDef, workflow func(StepCallbacks) error) error {
+func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.Context, StepCallbacks) error) error {
 	model := NewProgressModel(title, subtitle, defs)
 
 	p := tea.NewProgram(model)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	errCh := make(chan error, 1)
 
@@ -235,13 +240,16 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(StepCallb
 			Done:  func() { safeSend(StepDoneMsg{}) },
 			Fail:  func(err string) { safeSend(StepFailedMsg{Err: err}) },
 		}
-		errCh <- workflow(cb)
+		errCh <- workflow(ctx, cb)
 		safeSend(WorkflowDone{})
 	}()
 
 	if _, err := p.Run(); err != nil {
+		cancel()
 		return err
 	}
+
+	cancel() // Signal goroutine to stop between steps
 
 	select {
 	case err := <-errCh:
