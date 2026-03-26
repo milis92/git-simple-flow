@@ -406,7 +406,13 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 	err := ui.RunProgress("git sf feature discard", branch, defs, func(cb ui.StepCallbacks) error {
 		// Step 0: Close PR (soft fail)
 		cb.Start()
-		_ = s.GH.ClosePR(reason)
+		if ghErr := gh.CheckGHInstalled(); ghErr == nil {
+			if authErr := s.GH.CheckAuthenticated(); authErr == nil {
+				if err := s.GH.ClosePR(reason); err != nil {
+					// soft fail — PR may not exist
+				}
+			}
+		}
 		cb.Done()
 
 		// Step 1: Switch to main

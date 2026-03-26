@@ -211,7 +211,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		)
 	}
 
-	return ui.RunProgress("git sf hotfix finish", branch, defs, func(cb ui.StepCallbacks) error {
+	err := ui.RunProgress("git sf hotfix finish", branch, defs, func(cb ui.StepCallbacks) error {
 		// Step: Find PR
 		cb.Start()
 		pr, err := s.GH.GetCurrentPR()
@@ -316,6 +316,11 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		_ = pr
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.UI.Result("Hotfix complete!")
+	return nil
 }
 
 // finishClassic runs the hotfix finish workflow with print-style output.
