@@ -55,7 +55,7 @@ Also available as `.deb`, `.rpm`, and manual download.
 **Verify it works:**
 
 ```sh
-git sf --help
+git sf -h
 ```
 
 > [!TIP]
@@ -221,6 +221,26 @@ draft_pr_on_start: true
 ```
 
 Run `git sf config` to inspect the resolved values and where each one comes from.
+
+---
+
+## Claude Code Skill
+
+The **git-sf-workflow** skill teaches [Claude Code](https://docs.anthropic.com/en/docs/claude-code) the Simple Flow
+branching model and how to use `git sf` instead of raw `git`/`gh` commands. Once installed, Claude understands the
+workflow concepts — single trunk, tag-based releases, hotfixes from tags — and automatically manages branches, PRs, and
+releases through `git sf` when working in any repository that has it installed.
+
+**Install the marketplace and plugin:**
+
+```sh
+/plugin marketplace add milis92/git-simple-flow
+/plugin install git-sf-workflow@git-sf-marketplace
+/reload-plugins
+```
+
+The skill is now available in every Claude Code session. Ask Claude to start a feature, open a PR, or cut a release, and
+it will follow the Simple Flow model using `git sf` commands.
 
 ---
 

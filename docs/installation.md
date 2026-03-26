@@ -90,7 +90,7 @@ Extract the archive and place the `git-sf` binary somewhere on your `PATH`.
 ## Verify Installation
 
 ```sh
-git sf --help
+git sf -h
 ```
 
 You should see the list of available commands.

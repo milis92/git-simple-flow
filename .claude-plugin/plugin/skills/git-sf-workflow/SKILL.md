@@ -7,10 +7,30 @@ description: >
   "release", "hotfix", "git workflow", "branch lifecycle".
 ---
 
+## What is Simple Flow?
+
+Simple Flow is a Git branching model that takes the single-trunk simplicity of GitHub Flow and adds structured hotfix
+paths from Git Flow — without release branches, develop branches, or feature flags.
+
+**Core rules:**
+
+- **One trunk (`main`), no other long-lived branches.** All work starts from `main` and merges back.
+- **Releases are tags, not branches.** A release is a semver tag (`v1.2.3`) on `main`. Nothing to maintain after.
+- **Hotfixes branch from tags, not `main`.** This guarantees the fix contains only released code plus the change — no
+  unreleased feature work leaks in.
+- **Semver is built in.** Versions live in git tags. `major`, `minor`, or `patch` bumps are a single command.
+- **`main` is latest, tags are stable.** The tip of `main` is a rolling "latest" channel. Tags mark explicitly blessed
+  stable points.
+
+**Lifecycle:** branch → commit → PR → merge → tag (when ready).
+
+**When NOT to use Simple Flow:** parallel release lines (v1.x + v2.x), monorepos with independent package versions,
+continuous deployment with no version numbers, or orgs that mandate feature flags for every change.
+
 ## Overview
 
-git-sf is a Git workflow CLI that sits between Git Flow and GitHub Flow. Use it for all branch/PR/release lifecycle ops
-when available. Fall back to raw git/gh if not installed.
+git-sf is the CLI that implements Simple Flow. Use it for all branch/PR/release lifecycle ops when available. Fall back
+to raw git/gh if not installed.
 
 ```sh
 which git-sf   # verify presence before using
