@@ -2,12 +2,14 @@ package feature
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/milis92/git-simple-flow/internal/config"
 	"github.com/milis92/git-simple-flow/internal/gh"
@@ -42,6 +44,44 @@ func TestPublishPromptsBeforePush(t *testing.T) {
 	}
 
 	err := svc.Publish(PublishOpts{})
+	if !errors.Is(err, promptErr) {
+		t.Fatalf("Publish() error = %v, want %v", err, promptErr)
+	}
+}
+
+func TestPublishPromptsForBodyWhenTitleProvided(t *testing.T) {
+	repoDir := initFeatureRepo(t)
+	installFakeGH(t)
+
+	promptErr := errors.New("prompt cancelled")
+	oldPrompt := runTitlePrompt
+	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+		if defaultTitle != "Already set" {
+			t.Fatalf("defaultTitle = %q, want %q", defaultTitle, "Already set")
+		}
+		if !includeBody {
+			t.Fatal("includeBody = false, want true")
+		}
+
+		return ui.InputPromptResult{}, promptErr
+	}
+	t.Cleanup(func() {
+		runTitlePrompt = oldPrompt
+	})
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.Interactive = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Publish(PublishOpts{Title: "Already set"})
 	if !errors.Is(err, promptErr) {
 		t.Fatalf("Publish() error = %v, want %v", err, promptErr)
 	}
@@ -85,6 +125,64 @@ func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 	}
 }
 
+func TestFinishInteractiveCancelsInFlightMerge(t *testing.T) {
+	repoDir := initFeatureRepo(t)
+	mergeStarted := filepath.Join(t.TempDir(), "merge-started")
+	mergeDone := filepath.Join(t.TempDir(), "merge-done")
+	installFinishGH(t, mergeStarted, mergeDone)
+
+	oldRunProgress := runProgress
+	runProgress = func(_ string, _ string, _ []ui.StepDef, workflow func(context.Context, ui.StepCallbacks) error) error {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- workflow(ctx, ui.StepCallbacks{
+				Start: func() {},
+				Done:  func() {},
+				Fail:  func(string) {},
+			})
+		}()
+
+		waitForFile(t, mergeStarted, time.Second)
+		cancel()
+
+		select {
+		case err := <-errCh:
+			return err
+		case <-time.After(2 * time.Second):
+			t.Fatal("workflow did not stop after cancellation")
+			return nil
+		}
+	}
+	t.Cleanup(func() {
+		runProgress = oldRunProgress
+	})
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.Interactive = true
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Finish() error = %v, want context.Canceled", err)
+	}
+
+	if _, statErr := os.Stat(mergeDone); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("merge completion marker should not exist after cancellation, stat err = %v", statErr)
+	}
+}
+
 func initFeatureRepo(t *testing.T) string {
 	t.Helper()
 
@@ -115,6 +213,86 @@ func installFakeGH(t *testing.T) {
 	}
 
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installFinishGH(t *testing.T, mergeStartedPath, mergeDonePath string) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":123,"title":"Feature PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  echo '[{"name":"ci","status":"completed","conclusion":"success"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  exec env GO_WANT_FEATURE_HELPER_PROCESS=1 MERGE_STARTED_FILE="$MERGE_STARTED_FILE" MERGE_DONE_FILE="$MERGE_DONE_FILE" "$GIT_SF_TEST_HELPER" -test.run=TestFeatureHelperProcess -- merge-helper
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+	t.Setenv("GIT_SF_TEST_HELPER", os.Args[0])
+	t.Setenv("MERGE_STARTED_FILE", mergeStartedPath)
+	t.Setenv("MERGE_DONE_FILE", mergeDonePath)
+}
+
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %s", path)
+}
+
+func TestFeatureHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_FEATURE_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	args := helperArgs(os.Args)
+	if len(args) != 1 || args[0] != "merge-helper" {
+		os.Exit(2)
+	}
+
+	if err := os.WriteFile(os.Getenv("MERGE_STARTED_FILE"), []byte("started"), 0644); err != nil {
+		os.Exit(1)
+	}
+
+	time.Sleep(2 * time.Second)
+	if err := os.WriteFile(os.Getenv("MERGE_DONE_FILE"), []byte("done"), 0644); err != nil {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
+func helperArgs(args []string) []string {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[i+1:]
+		}
+	}
+
+	return nil
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {

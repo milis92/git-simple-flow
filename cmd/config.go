@@ -96,11 +96,14 @@ var configEditCmd = &cobra.Command{
 		inherited := config.Merge(config.Defaults(), global)
 		cfg := config.Merge(inherited, repo)
 		defaults := ui.InitFormResult{
-			MainBranch:    cfg.MainBranch,
-			FeaturePrefix: cfg.FeaturePrefix,
-			HotfixPrefix:  cfg.HotfixPrefix,
-			TagPrefix:     cfg.TagPrefix,
-			DraftPR:       cfg.DraftPROnStart,
+			MainBranch:         cfg.MainBranch,
+			FeaturePrefix:      cfg.FeaturePrefix,
+			HotfixPrefix:       cfg.HotfixPrefix,
+			TagPrefix:          cfg.TagPrefix,
+			MergeStrategy:      cfg.MergeStrategy,
+			DefaultReleaseBump: cfg.DefaultReleaseBump,
+			DraftPR:            cfg.DraftPROnStart,
+			HotfixAutoRelease:  cfg.HotfixAutoRelease,
 		}
 
 		r := runner.NewRunner(false, false)
@@ -188,7 +191,10 @@ func buildRepoConfigForEdit(inherited config.Config, existing *config.PartialCon
 	updated.FeaturePrefix = repoStringOverride(result.FeaturePrefix, inherited.FeaturePrefix)
 	updated.HotfixPrefix = repoStringOverride(result.HotfixPrefix, inherited.HotfixPrefix)
 	updated.TagPrefix = repoStringOverride(result.TagPrefix, inherited.TagPrefix)
+	updated.MergeStrategy = repoStringOverride(result.MergeStrategy, inherited.MergeStrategy)
+	updated.DefaultReleaseBump = repoStringOverride(result.DefaultReleaseBump, inherited.DefaultReleaseBump)
 	updated.DraftPROnStart = repoBoolOverride(result.DraftPR, inherited.DraftPROnStart)
+	updated.HotfixAutoRelease = repoBoolOverride(result.HotfixAutoRelease, inherited.HotfixAutoRelease)
 
 	return updated
 }

@@ -3,6 +3,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -21,6 +22,11 @@ type Git struct {
 // New creates a Git instance that operates on the given directory.
 func New(r *runner.Runner, dir string) *Git {
 	return &Git{runner: r, dir: dir}
+}
+
+// WithContext returns a copy of Git whose commands are canceled when ctx is done.
+func (g *Git) WithContext(ctx context.Context) *Git {
+	return &Git{runner: g.runner.WithContext(ctx), dir: g.dir}
 }
 
 // run executes a git command with -C <dir> prepended to the arguments.

@@ -2,6 +2,7 @@
 package gh
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -21,6 +22,11 @@ type GH struct {
 // New creates a GH instance with the given runner.
 func New(r *runner.Runner) *GH {
 	return &GH{runner: r}
+}
+
+// WithContext returns a copy of GH whose commands are canceled when ctx is done.
+func (g *GH) WithContext(ctx context.Context) *GH {
+	return &GH{runner: g.runner.WithContext(ctx)}
 }
 
 // CheckGHInstalled verifies that the gh CLI is available in PATH.

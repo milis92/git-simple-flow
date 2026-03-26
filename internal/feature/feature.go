@@ -15,6 +15,7 @@ import (
 )
 
 var runTitlePrompt = ui.RunTitlePrompt
+var runProgress = ui.RunProgress
 
 // Service orchestrates git, GitHub CLI, UI, and config to execute
 // the feature branch workflow.
@@ -153,8 +154,12 @@ func (s *Service) Publish(opts PublishOpts) error {
 }
 
 func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (string, string, error) {
-	if title == "" && s.UI.ShouldPrompt() {
-		defaultTitle := gh.HumanizeBranchName(branch, s.Config.FeaturePrefix)
+	if s.UI.ShouldPrompt() && (title == "" || includeBody && body == "") {
+		defaultTitle := title
+		if defaultTitle == "" {
+			defaultTitle = gh.HumanizeBranchName(branch, s.Config.FeaturePrefix)
+		}
+
 		result, err := runTitlePrompt(defaultTitle, includeBody)
 		if err != nil {
 			return "", "", err
@@ -235,11 +240,14 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		defs[0].Label = "Check CI (skipped)"
 	}
 
-	err = ui.RunProgress("git sf feature finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = runProgress("git sf feature finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+		ctxGit := s.Git.WithContext(ctx)
+		ctxGH := s.GH.WithContext(ctx)
+
 		// Step 0: Check CI
 		cb.Start()
 		if !opts.Force {
-			checks, err := s.GH.GetPRChecks()
+			checks, err := ctxGH.GetPRChecks()
 			if err != nil {
 				cb.Fail(err.Error())
 				return err
@@ -264,7 +272,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Step 1: Merge PR
 		cb.Start()
-		if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
+		if err := ctxGH.MergePR(s.Config.MergeStrategy); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -276,7 +284,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Step 2: Switch to main
 		cb.Start()
-		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+		if err := ctxGit.Checkout(s.Config.MainBranch); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -288,7 +296,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Step 3: Pull latest
 		cb.Start()
-		if err := s.Git.Pull(); err != nil {
+		if err := ctxGit.Pull(); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -300,7 +308,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Step 4: Delete local branch
 		cb.Start()
-		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+		if err := ctxGit.DeleteLocalBranch(branch); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -312,7 +320,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 		// Step 5: Delete remote branch (soft fail)
 		cb.Start()
-		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
 			cb.Fail("already deleted or could not be removed")
 		} else {
 			cb.Done()
@@ -440,14 +448,17 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		{Label: "Delete remote branch"},
 	}
 
-	err = ui.RunProgress("git sf feature discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+	err = runProgress("git sf feature discard", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+		ctxGit := s.Git.WithContext(ctx)
+		ctxGH := s.GH.WithContext(ctx)
+
 		// Step 0: Close PR (soft fail — PR may not exist)
 		cb.Start()
 		if ghErr := gh.CheckGHInstalled(); ghErr != nil {
 			cb.Fail("gh CLI not available — skipped")
-		} else if authErr := s.GH.CheckAuthenticated(); authErr != nil {
+		} else if authErr := ctxGH.CheckAuthenticated(); authErr != nil {
 			cb.Fail("not authenticated — skipped")
-		} else if err := s.GH.ClosePR(reason); err != nil {
+		} else if err := ctxGH.ClosePR(reason); err != nil {
 			cb.Fail("no PR to close or already closed")
 		} else {
 			cb.Done()
@@ -459,7 +470,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 
 		// Step 1: Switch to main
 		cb.Start()
-		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+		if err := ctxGit.Checkout(s.Config.MainBranch); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -471,7 +482,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 
 		// Step 2: Delete local branch
 		cb.Start()
-		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+		if err := ctxGit.DeleteLocalBranch(branch); err != nil {
 			cb.Fail(err.Error())
 			return err
 		}
@@ -483,7 +494,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()
-		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
 			cb.Fail("already deleted or could not be removed")
 		} else {
 			cb.Done()

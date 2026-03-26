@@ -8,11 +8,14 @@ import (
 
 func TestInitFormResultToConfig(t *testing.T) {
 	result := InitFormResult{
-		MainBranch:    "develop",
-		FeaturePrefix: "feat/",
-		HotfixPrefix:  "fix/",
-		TagPrefix:     "v",
-		DraftPR:       true,
+		MainBranch:         "develop",
+		FeaturePrefix:      "feat/",
+		HotfixPrefix:       "fix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "rebase",
+		DefaultReleaseBump: "patch",
+		DraftPR:            true,
+		HotfixAutoRelease:  true,
 	}
 
 	cfg := result.ToPartialConfig()
@@ -29,8 +32,17 @@ func TestInitFormResultToConfig(t *testing.T) {
 	if cfg.TagPrefix != "v" {
 		t.Errorf("TagPrefix = %q, want %q", cfg.TagPrefix, "v")
 	}
+	if cfg.MergeStrategy != "rebase" {
+		t.Errorf("MergeStrategy = %q, want %q", cfg.MergeStrategy, "rebase")
+	}
+	if cfg.DefaultReleaseBump != "patch" {
+		t.Errorf("DefaultReleaseBump = %q, want %q", cfg.DefaultReleaseBump, "patch")
+	}
 	if cfg.DraftPROnStart == nil || !*cfg.DraftPROnStart {
 		t.Error("DraftPROnStart should be true")
+	}
+	if cfg.HotfixAutoRelease == nil || !*cfg.HotfixAutoRelease {
+		t.Error("HotfixAutoRelease should be true")
 	}
 }
 
@@ -43,6 +55,15 @@ func TestInitFormResultDefaults(t *testing.T) {
 	}
 	if result.FeaturePrefix != "feature/" {
 		t.Errorf("FeaturePrefix = %q, want %q", result.FeaturePrefix, "feature/")
+	}
+	if result.MergeStrategy != "squash" {
+		t.Errorf("MergeStrategy = %q, want %q", result.MergeStrategy, "squash")
+	}
+	if result.DefaultReleaseBump != "minor" {
+		t.Errorf("DefaultReleaseBump = %q, want %q", result.DefaultReleaseBump, "minor")
+	}
+	if result.HotfixAutoRelease {
+		t.Error("HotfixAutoRelease should default to false")
 	}
 }
 

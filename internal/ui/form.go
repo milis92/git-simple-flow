@@ -20,33 +20,43 @@ func validateNonEmpty(field string) func(string) error {
 
 // InitFormResult holds values collected by the init wizard.
 type InitFormResult struct {
-	MainBranch    string
-	FeaturePrefix string
-	HotfixPrefix  string
-	TagPrefix     string
-	DraftPR       bool
+	MainBranch         string
+	FeaturePrefix      string
+	HotfixPrefix       string
+	TagPrefix          string
+	MergeStrategy      string
+	DefaultReleaseBump string
+	DraftPR            bool
+	HotfixAutoRelease  bool
 }
 
 // InitFormResultFromDefaults creates an InitFormResult pre-filled from config defaults.
 func InitFormResultFromDefaults(cfg config.Config) InitFormResult {
 	return InitFormResult{
-		MainBranch:    cfg.MainBranch,
-		FeaturePrefix: cfg.FeaturePrefix,
-		HotfixPrefix:  cfg.HotfixPrefix,
-		TagPrefix:     cfg.TagPrefix,
-		DraftPR:       cfg.DraftPROnStart,
+		MainBranch:         cfg.MainBranch,
+		FeaturePrefix:      cfg.FeaturePrefix,
+		HotfixPrefix:       cfg.HotfixPrefix,
+		TagPrefix:          cfg.TagPrefix,
+		MergeStrategy:      cfg.MergeStrategy,
+		DefaultReleaseBump: cfg.DefaultReleaseBump,
+		DraftPR:            cfg.DraftPROnStart,
+		HotfixAutoRelease:  cfg.HotfixAutoRelease,
 	}
 }
 
 // ToPartialConfig converts the form result to a PartialConfig for saving.
 func (r InitFormResult) ToPartialConfig() config.PartialConfig {
 	draftPR := r.DraftPR
+	hotfixAutoRelease := r.HotfixAutoRelease
 	return config.PartialConfig{
-		MainBranch:     r.MainBranch,
-		FeaturePrefix:  r.FeaturePrefix,
-		HotfixPrefix:   r.HotfixPrefix,
-		TagPrefix:      r.TagPrefix,
-		DraftPROnStart: &draftPR,
+		MainBranch:         r.MainBranch,
+		FeaturePrefix:      r.FeaturePrefix,
+		HotfixPrefix:       r.HotfixPrefix,
+		TagPrefix:          r.TagPrefix,
+		MergeStrategy:      r.MergeStrategy,
+		DefaultReleaseBump: r.DefaultReleaseBump,
+		DraftPROnStart:     &draftPR,
+		HotfixAutoRelease:  &hotfixAutoRelease,
 	}
 }
 
@@ -71,13 +81,25 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 		branchOptions = append([]huh.Option[string]{huh.NewOption(defaults.MainBranch, defaults.MainBranch)}, branchOptions...)
 	}
 
+	mergeStrategyOptions := []huh.Option[string]{
+		huh.NewOption("squash", "squash"),
+		huh.NewOption("merge", "merge"),
+		huh.NewOption("rebase", "rebase"),
+	}
+
+	releaseBumpOptions := []huh.Option[string]{
+		huh.NewOption("minor", "minor"),
+		huh.NewOption("patch", "patch"),
+		huh.NewOption("major", "major"),
+	}
+
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Main branch").
 				Options(branchOptions...).
 				Value(&result.MainBranch),
-		).Title("Repository").Description("1/3"),
+		).Title("Repository").Description("1/4"),
 
 		huh.NewGroup(
 			huh.NewInput().
@@ -88,17 +110,31 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 				Title("Hotfix branch prefix").
 				Value(&result.HotfixPrefix).
 				Validate(validateNonEmpty("hotfix prefix")),
-		).Title("Branches").Description("2/3"),
+		).Title("Branches").Description("2/4"),
 
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Tag prefix").
 				Value(&result.TagPrefix).
 				Validate(validateNonEmpty("tag prefix")),
+			huh.NewSelect[string]().
+				Title("Merge strategy").
+				Options(mergeStrategyOptions...).
+				Value(&result.MergeStrategy),
+			huh.NewSelect[string]().
+				Title("Default release bump").
+				Options(releaseBumpOptions...).
+				Value(&result.DefaultReleaseBump),
+		).Title("Tags & Merges").Description("3/4"),
+
+		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Create draft PR on branch start?").
 				Value(&result.DraftPR),
-		).Title("Tags & PRs").Description("3/3"),
+			huh.NewConfirm().
+				Title("Auto-release patch after hotfix finish?").
+				Value(&result.HotfixAutoRelease),
+		).Title("Automation").Description("4/4"),
 	).WithTheme(theme.HuhTheme())
 
 	err := form.Run()

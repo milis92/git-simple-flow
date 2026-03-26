@@ -13,11 +13,14 @@ func boolPtr(v bool) *bool {
 
 func TestBuildRepoConfigForEditPreservesUntouchedFields(t *testing.T) {
 	inherited := config.Config{
-		MainBranch:     "main",
-		FeaturePrefix:  "feature/",
-		HotfixPrefix:   "hotfix/",
-		TagPrefix:      "v",
-		DraftPROnStart: false,
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPROnStart:     false,
+		HotfixAutoRelease:  false,
 	}
 	existing := &config.PartialConfig{
 		MainBranch:        "develop",
@@ -26,11 +29,14 @@ func TestBuildRepoConfigForEditPreservesUntouchedFields(t *testing.T) {
 	}
 
 	result := ui.InitFormResult{
-		MainBranch:    "main",
-		FeaturePrefix: "feat/",
-		HotfixPrefix:  "hotfix/",
-		TagPrefix:     "v",
-		DraftPR:       false,
+		MainBranch:         "main",
+		FeaturePrefix:      "feat/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "merge",
+		DefaultReleaseBump: "patch",
+		DraftPR:            false,
+		HotfixAutoRelease:  false,
 	}
 
 	updated := buildRepoConfigForEdit(inherited, existing, result)
@@ -47,32 +53,41 @@ func TestBuildRepoConfigForEditPreservesUntouchedFields(t *testing.T) {
 	if updated.TagPrefix != "" {
 		t.Errorf("TagPrefix = %q, want empty to inherit", updated.TagPrefix)
 	}
+	if updated.MergeStrategy != "merge" {
+		t.Errorf("MergeStrategy = %q, want %q", updated.MergeStrategy, "merge")
+	}
+	if updated.DefaultReleaseBump != "patch" {
+		t.Errorf("DefaultReleaseBump = %q, want %q", updated.DefaultReleaseBump, "patch")
+	}
 	if updated.DraftPROnStart != nil {
 		t.Errorf("DraftPROnStart = %v, want nil to inherit", *updated.DraftPROnStart)
 	}
-	if updated.MergeStrategy != "rebase" {
-		t.Errorf("MergeStrategy = %q, want untouched value %q", updated.MergeStrategy, "rebase")
-	}
-	if updated.HotfixAutoRelease == nil || !*updated.HotfixAutoRelease {
-		t.Error("HotfixAutoRelease should be preserved")
+	if updated.HotfixAutoRelease != nil {
+		t.Errorf("HotfixAutoRelease = %v, want nil to inherit", *updated.HotfixAutoRelease)
 	}
 }
 
 func TestBuildRepoConfigForEditDoesNotPromoteInheritedValues(t *testing.T) {
 	inherited := config.Config{
-		MainBranch:     "develop",
-		FeaturePrefix:  "feat/",
-		HotfixPrefix:   "fix/",
-		TagPrefix:      "rel-",
-		DraftPROnStart: true,
+		MainBranch:         "develop",
+		FeaturePrefix:      "feat/",
+		HotfixPrefix:       "fix/",
+		TagPrefix:          "rel-",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPROnStart:     true,
+		HotfixAutoRelease:  false,
 	}
 
 	result := ui.InitFormResult{
-		MainBranch:    "develop",
-		FeaturePrefix: "feat/",
-		HotfixPrefix:  "fix/",
-		TagPrefix:     "rel-",
-		DraftPR:       true,
+		MainBranch:         "develop",
+		FeaturePrefix:      "feat/",
+		HotfixPrefix:       "fix/",
+		TagPrefix:          "rel-",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPR:            true,
+		HotfixAutoRelease:  false,
 	}
 
 	updated := buildRepoConfigForEdit(inherited, nil, result)
@@ -89,8 +104,58 @@ func TestBuildRepoConfigForEditDoesNotPromoteInheritedValues(t *testing.T) {
 	if updated.TagPrefix != "" {
 		t.Errorf("TagPrefix = %q, want empty", updated.TagPrefix)
 	}
+	if updated.MergeStrategy != "" {
+		t.Errorf("MergeStrategy = %q, want empty", updated.MergeStrategy)
+	}
+	if updated.DefaultReleaseBump != "" {
+		t.Errorf("DefaultReleaseBump = %q, want empty", updated.DefaultReleaseBump)
+	}
 	if updated.DraftPROnStart != nil {
 		t.Errorf("DraftPROnStart = %v, want nil", *updated.DraftPROnStart)
+	}
+	if updated.HotfixAutoRelease != nil {
+		t.Errorf("HotfixAutoRelease = %v, want nil", *updated.HotfixAutoRelease)
+	}
+}
+
+func TestBuildRepoConfigForEditPreservesRepoOverridesWhenStillSelected(t *testing.T) {
+	inherited := config.Config{
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "squash",
+		DefaultReleaseBump: "minor",
+		DraftPROnStart:     false,
+		HotfixAutoRelease:  false,
+	}
+	existing := &config.PartialConfig{
+		MergeStrategy:      "rebase",
+		DefaultReleaseBump: "patch",
+		HotfixAutoRelease:  boolPtr(true),
+	}
+
+	result := ui.InitFormResult{
+		MainBranch:         "main",
+		FeaturePrefix:      "feature/",
+		HotfixPrefix:       "hotfix/",
+		TagPrefix:          "v",
+		MergeStrategy:      "rebase",
+		DefaultReleaseBump: "patch",
+		DraftPR:            false,
+		HotfixAutoRelease:  true,
+	}
+
+	updated := buildRepoConfigForEdit(inherited, existing, result)
+
+	if updated.MergeStrategy != "rebase" {
+		t.Errorf("MergeStrategy = %q, want %q", updated.MergeStrategy, "rebase")
+	}
+	if updated.DefaultReleaseBump != "patch" {
+		t.Errorf("DefaultReleaseBump = %q, want %q", updated.DefaultReleaseBump, "patch")
+	}
+	if updated.HotfixAutoRelease == nil || !*updated.HotfixAutoRelease {
+		t.Error("HotfixAutoRelease should preserve the repo override")
 	}
 }
 

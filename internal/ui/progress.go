@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -257,12 +258,10 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 	}
 
 	cancel() // Signal goroutine to stop between steps
-
-	select {
-	case err := <-errCh:
-		return err
-	default:
-		// Bubble Tea quit before the workflow finished (e.g. Ctrl+C).
+	err := <-errCh
+	if errors.Is(err, context.Canceled) {
 		return fmt.Errorf("interrupted")
 	}
+
+	return err
 }

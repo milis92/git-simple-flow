@@ -47,6 +47,44 @@ func TestPublishPromptsBeforePush(t *testing.T) {
 	}
 }
 
+func TestPublishPromptsForBodyWhenTitleProvided(t *testing.T) {
+	repoDir := initHotfixRepo(t)
+	installFakeGH(t)
+
+	promptErr := errors.New("prompt cancelled")
+	oldPrompt := runTitlePrompt
+	runTitlePrompt = func(defaultTitle string, includeBody bool) (ui.InputPromptResult, error) {
+		if defaultTitle != "Already set" {
+			t.Fatalf("defaultTitle = %q, want %q", defaultTitle, "Already set")
+		}
+		if !includeBody {
+			t.Fatal("includeBody = false, want true")
+		}
+
+		return ui.InputPromptResult{}, promptErr
+	}
+	t.Cleanup(func() {
+		runTitlePrompt = oldPrompt
+	})
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.Interactive = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Publish(PublishOpts{Title: "Already set"})
+	if !errors.Is(err, promptErr) {
+		t.Fatalf("Publish() error = %v, want %v", err, promptErr)
+	}
+}
+
 func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 	installFakeGH(t)
@@ -85,6 +123,33 @@ func TestPublishSkipsOptionalPromptWhenAutoConfirm(t *testing.T) {
 	}
 }
 
+func TestFinishInteractiveNoPRUsesHelpfulError(t *testing.T) {
+	repoDir := initHotfixRepo(t)
+	installNoPRGH(t)
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.Interactive = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want helpful no-PR error")
+	}
+
+	want := "no PR found for this branch. Run 'git sf hotfix publish' first"
+	if err.Error() != want {
+		t.Fatalf("Finish() error = %q, want %q", err.Error(), want)
+	}
+}
+
 func initHotfixRepo(t *testing.T) string {
 	t.Helper()
 
@@ -110,6 +175,19 @@ func installFakeGH(t *testing.T) {
 	binDir := t.TempDir()
 	ghPath := filepath.Join(binDir, "gh")
 	script := "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then\n  exit 0\nfi\necho \"unexpected gh command: $*\" >&2\nexit 1\n"
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installNoPRGH(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo \"no pull requests found\" >&2\n  exit 1\nfi\necho \"unexpected gh command: $*\" >&2\nexit 1\n"
 	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
