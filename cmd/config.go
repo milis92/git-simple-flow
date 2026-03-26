@@ -12,7 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// initCmd creates a .sfconfig.yml file with default settings in the repo root.
+// initCmd creates a .sfconfig.yml file in the repo root. In interactive mode
+// it runs a wizard to customize settings; otherwise it writes defaults.
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create .sfconfig.yml with default settings",
