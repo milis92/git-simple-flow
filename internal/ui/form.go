@@ -18,7 +18,8 @@ func validateNonEmpty(field string) func(string) error {
 	}
 }
 
-// InitFormResult holds values collected by the init wizard.
+// InitFormResult holds values collected by the configuration wizard,
+// used by both the init and config edit commands.
 type InitFormResult struct {
 	MainBranch         string
 	FeaturePrefix      string

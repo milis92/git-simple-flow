@@ -154,7 +154,7 @@ func (s *Service) Publish(opts PublishOpts) error {
 }
 
 func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (string, string, error) {
-	if s.UI.ShouldPrompt() && (title == "" || includeBody && body == "") {
+	if s.UI.ShouldPrompt() && (title == "" || (includeBody && body == "")) {
 		defaultTitle := title
 		if defaultTitle == "" {
 			defaultTitle = gh.HumanizeBranchName(branch, s.Config.FeaturePrefix)
@@ -321,7 +321,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		// Step 5: Delete remote branch (soft fail)
 		cb.Start()
 		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail("already deleted or could not be removed")
+			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
 		} else {
 			cb.Done()
 		}
@@ -390,7 +390,7 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 	s.UI.Success("Deleted local branch " + branch)
 
 	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
-		s.UI.Warning("Remote branch already deleted or could not be removed: " + branch)
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted remote branch " + branch)
 	}
@@ -459,7 +459,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		} else if authErr := ctxGH.CheckAuthenticated(); authErr != nil {
 			cb.Fail("not authenticated — skipped")
 		} else if err := ctxGH.ClosePR(reason); err != nil {
-			cb.Fail("no PR to close or already closed")
+			cb.Fail(fmt.Sprintf("could not close PR: %s", err))
 		} else {
 			cb.Done()
 		}
@@ -495,7 +495,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()
 		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail("already deleted or could not be removed")
+			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
 		} else {
 			cb.Done()
 		}
@@ -543,7 +543,7 @@ func (s *Service) discardClassic(branch string, reason string) error {
 	s.UI.Success("Deleted local branch " + branch)
 
 	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
-		s.UI.Warning("Remote branch already deleted or could not be removed: " + branch)
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted remote branch " + branch)
 	}

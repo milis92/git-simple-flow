@@ -150,7 +150,7 @@ func (s *Service) Publish(opts PublishOpts) error {
 }
 
 func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (string, string, error) {
-	if s.UI.ShouldPrompt() && (title == "" || includeBody && body == "") {
+	if s.UI.ShouldPrompt() && (title == "" || (includeBody && body == "")) {
 		defaultTitle := title
 		if defaultTitle == "" {
 			defaultTitle = gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
@@ -181,9 +181,11 @@ func currentPRError(err error) error {
 	return err
 }
 
-// Finish merges the current hotfix PR and cleans up. After merging and branch
-// deletion, if Release is set or hotfix_auto_release is configured, it
-// automatically creates and pushes a patch version tag.
+// Finish merges the current hotfix PR and cleans up. It runs preflight checks,
+// detects the current branch, then routes to finishInteractive (Bubble Tea
+// progress) or finishClassic (print-style) based on whether the UI is in
+// interactive mode. If Release is set or hotfix_auto_release is configured,
+// a patch version tag is created after merging.
 func (s *Service) Finish(opts FinishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -326,7 +328,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		// Step: Delete remote branch (soft fail)
 		cb.Start()
 		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail("already deleted or could not be removed")
+			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
 		} else {
 			cb.Done()
 		}
@@ -349,7 +351,11 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 				cb.Fail(err.Error())
 				return err
 			}
-			next, _ := current.Bump("patch")
+			next, err := current.Bump("patch")
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
 			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
 			if err := ctxGit.Tag(newTag); err != nil {
 				cb.Fail(err.Error())
@@ -440,7 +446,7 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 	s.UI.Success("Deleted branch " + branch + " (local)")
 
 	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
-		s.UI.Warning("Remote branch already deleted")
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted branch " + branch + " (remote)")
 	}
@@ -455,7 +461,10 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 		if err != nil {
 			return err
 		}
-		next, _ := current.Bump("patch")
+		next, err := current.Bump("patch")
+		if err != nil {
+			return fmt.Errorf("could not bump version: %w", err)
+		}
 		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
 
 		if err := s.Git.Tag(newTag); err != nil {
@@ -533,7 +542,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		} else if authErr := ctxGH.CheckAuthenticated(); authErr != nil {
 			cb.Fail("not authenticated — skipped")
 		} else if err := ctxGH.ClosePR(reason); err != nil {
-			cb.Fail("no PR to close or already closed")
+			cb.Fail(fmt.Sprintf("could not close PR: %s", err))
 		} else {
 			cb.Done()
 		}
@@ -569,7 +578,7 @@ func (s *Service) discardInteractive(branch string, reason string) error {
 		// Step 3: Delete remote branch (soft fail)
 		cb.Start()
 		if err := ctxGit.DeleteRemoteBranch(branch); err != nil {
-			cb.Fail("already deleted or could not be removed")
+			cb.Fail(fmt.Sprintf("could not delete remote branch: %s", err))
 		} else {
 			cb.Done()
 		}
@@ -617,7 +626,7 @@ func (s *Service) discardClassic(branch string, reason string) error {
 	s.UI.Success("Deleted branch " + branch + " (local)")
 
 	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
-		s.UI.Warning("Remote branch already deleted")
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted branch " + branch + " (remote)")
 	}

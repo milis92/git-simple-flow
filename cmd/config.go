@@ -38,12 +38,9 @@ var initCmd = &cobra.Command{
 			defaults := ui.InitFormResultFromDefaults(config.Defaults())
 
 			// Detect existing branches for the selector
-			r := runner.NewRunner(false, false)
+			r := runner.NewRunner(dryRun, verbose)
 			g := git.New(r, ".")
-			branches, _ := g.ListBranches()
-			if len(branches) == 0 {
-				branches = []string{"main", "develop", "master"}
-			}
+			branches := detectBranches(g, u)
 
 			result, err := ui.RunInitForm(defaults, branches)
 			if err != nil {
@@ -106,12 +103,9 @@ var configEditCmd = &cobra.Command{
 			HotfixAutoRelease:  cfg.HotfixAutoRelease,
 		}
 
-		r := runner.NewRunner(false, false)
+		r := runner.NewRunner(dryRun, verbose)
 		g := git.New(r, ".")
-		branches, _ := g.ListBranches()
-		if len(branches) == 0 {
-			branches = []string{"main", "develop", "master"}
-		}
+		branches := detectBranches(g, u)
 
 		result, err := ui.RunInitForm(defaults, branches)
 		if err != nil {
@@ -177,6 +171,20 @@ func loadGlobalConfig() (*config.PartialConfig, error) {
 	}
 	globalPath := filepath.Join(homeDir, ".config", "git-sf", "config.yml")
 	return config.LoadFromFile(globalPath)
+}
+
+// detectBranches returns the list of branches in the repository. If git branch
+// fails (e.g. permission error), it logs a muted warning and falls back to
+// common defaults. A brand-new repo with zero branches also gets defaults.
+func detectBranches(g *git.Git, u *ui.UI) []string {
+	branches, err := g.ListBranches()
+	if err != nil {
+		u.Muted(fmt.Sprintf("Could not detect branches: %s (using defaults)", err))
+		branches = []string{"main", "develop", "master"}
+	} else if len(branches) == 0 {
+		branches = []string{"main", "develop", "master"}
+	}
+	return branches
 }
 
 // buildRepoConfigForEdit preserves untouched repo-only fields and stores edited

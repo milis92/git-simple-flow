@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -13,9 +14,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// StepStatus represents the current state of a workflow step.
+type StepStatus int
+
 // Step status constants.
 const (
-	StepPending = iota
+	StepPending StepStatus = iota
 	StepActive
 	StepDone
 	StepFailed
@@ -29,7 +33,7 @@ type StepDef struct {
 // step is the internal representation of a workflow step.
 type step struct {
 	label     string
-	status    int
+	status    StepStatus
 	startedAt time.Time
 	elapsed   time.Duration
 	errMsg    string
@@ -198,7 +202,7 @@ func (m ProgressModel) hasFailed() bool {
 	return false
 }
 
-// TotalElapsed returns the sum of elapsed time across all completed steps.
+// TotalElapsed returns the sum of elapsed time across all finished steps (both successful and failed).
 func (m ProgressModel) TotalElapsed() time.Duration {
 	var total time.Duration
 	for _, s := range m.steps {
@@ -208,6 +212,9 @@ func (m ProgressModel) TotalElapsed() time.Duration {
 }
 
 // StepCallbacks provides functions for a workflow to signal step transitions.
+// The workflow must call Start before each step, followed by exactly one of
+// Done or Fail. The number of Start calls must not exceed the number of step
+// definitions passed to NewProgressModel.
 type StepCallbacks struct {
 	Start func()
 	Done  func()
@@ -217,7 +224,7 @@ type StepCallbacks struct {
 // RunProgress runs a Bubble Tea progress view while executing the workflow function.
 // The workflow function receives a context and StepCallbacks to signal step transitions.
 // The context is cancelled when Bubble Tea exits, allowing workflows to bail out early.
-// Returns an error if the workflow fails.
+// Returns an error if the workflow fails, if Bubble Tea encounters a runtime error, or if the user interrupts execution.
 func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.Context, StepCallbacks) error) error {
 	model := NewProgressModel(title, subtitle, defs)
 
@@ -228,10 +235,18 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 
 	errCh := make(chan error, 1)
 
-	// safeSend sends a message to the Bubble Tea program, ignoring panics
-	// from a program that has already quit (e.g. user pressed Ctrl+C).
+	// safeSend sends a message to the Bubble Tea program, suppressing the
+	// expected "send on closed channel" panic from a program that has already
+	// quit (e.g. user pressed Ctrl+C). Unexpected panics are logged to stderr.
 	safeSend := func(msg tea.Msg) {
-		defer func() { _ = recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				// Only suppress the expected panic from sending to a quit program
+				if s := fmt.Sprintf("%v", r); !strings.Contains(s, "send on closed") {
+					fmt.Fprintf(os.Stderr, "unexpected panic in progress view: %v\n", r)
+				}
+			}
+		}()
 		p.Send(msg)
 	}
 
@@ -252,16 +267,24 @@ func RunProgress(title, subtitle string, defs []StepDef, workflow func(context.C
 		safeSend(WorkflowDone{})
 	}()
 
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		cancel()
 		return err
 	}
 
 	cancel() // Signal goroutine to stop between steps
-	err := <-errCh
-	if errors.Is(err, context.Canceled) {
-		return fmt.Errorf("interrupted")
+	wfErr := <-errCh
+	if errors.Is(wfErr, context.Canceled) {
+		return fmt.Errorf("interrupted: %w", context.Canceled)
+	}
+	if wfErr != nil {
+		return wfErr
 	}
 
-	return err
+	if m, ok := finalModel.(ProgressModel); ok && m.overflowErr != "" {
+		return fmt.Errorf("BUG: %s", m.overflowErr)
+	}
+
+	return nil
 }
