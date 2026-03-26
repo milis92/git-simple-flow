@@ -87,6 +87,14 @@ func (s *Service) Start(name string, opts StartOpts) error {
 			return err
 		}
 		title := opts.Title
+		if title == "" && s.UI.Interactive {
+			defaultTitle := gh.HumanizeBranchName(branchName, s.Config.HotfixPrefix)
+			result, promptErr := ui.RunTitlePrompt(defaultTitle, false)
+			if promptErr != nil {
+				return promptErr
+			}
+			title = result.Title
+		}
 		if title == "" {
 			title = gh.HumanizeBranchName(branchName, s.Config.HotfixPrefix)
 		}
@@ -130,11 +138,23 @@ func (s *Service) Publish(opts PublishOpts) error {
 	s.UI.Success("Pushed " + branch)
 
 	title := opts.Title
+	body := opts.Body
+	if title == "" && s.UI.Interactive {
+		defaultTitle := gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
+		result, promptErr := ui.RunTitlePrompt(defaultTitle, true)
+		if promptErr != nil {
+			return promptErr
+		}
+		title = result.Title
+		if body == "" {
+			body = result.Body
+		}
+	}
 	if title == "" {
 		title = gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
 	}
 
-	pr, err := s.GH.CreatePR(s.Config.MainBranch, title, opts.Body, false)
+	pr, err := s.GH.CreatePR(s.Config.MainBranch, title, body, false)
 	if err != nil {
 		return err
 	}
