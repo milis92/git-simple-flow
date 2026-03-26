@@ -144,6 +144,26 @@ func (g *Git) IsInSyncWithRemote(branch string) (bool, error) {
 	return local == remote, nil
 }
 
+// ListBranches returns the names of all local branches.
+func (g *Git) ListBranches() ([]string, error) {
+	out, err := g.run("branch", "--format=%(refname:short)")
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	lines := strings.Split(out, "\n")
+	branches := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			branches = append(branches, trimmed)
+		}
+	}
+	return branches, nil
+}
+
 // CommitsAheadBehind returns how many commits branch is ahead of and behind base.
 func (g *Git) CommitsAheadBehind(branch, base string) (ahead, behind int, err error) {
 	out, err := g.run("rev-list", "--left-right", "--count", base+"..."+branch)

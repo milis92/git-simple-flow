@@ -126,3 +126,13 @@ func ForceWriteDefaults(path string) error {
 	}
 	return os.WriteFile(path, data, 0644)
 }
+
+// WriteConfig writes a full Config as YAML to the given path, creating or
+// overwriting the file.
+func WriteConfig(path string, cfg Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}

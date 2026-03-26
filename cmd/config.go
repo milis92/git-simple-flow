@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/milis92/git-simple-flow/internal/config"
+	"github.com/milis92/git-simple-flow/internal/git"
+	"github.com/milis92/git-simple-flow/internal/runner"
 	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -19,19 +21,48 @@ var initCmd = &cobra.Command{
 		path := filepath.Join(repoRoot(), ".sfconfig.yml")
 		force, _ := cmd.Flags().GetBool("force")
 
-		var err error
-		if force {
-			err = config.ForceWriteDefaults(path)
-		} else {
-			err = config.WriteDefaults(path)
+		if !force {
+			if _, err := os.Stat(path); err == nil {
+				return fmt.Errorf("config file already exists: %s (use --force to overwrite)", path)
+			}
 		}
 
-		if err != nil {
-			return err
+		isTTY := ui.IsTerminal(os.Stdin) && ui.IsTerminal(os.Stdout)
+		if ui.ShouldInteract(isTTY, noInteractive) {
+			defaults := ui.InitFormResultFromDefaults(config.Defaults())
+
+			// Detect existing branches for the selector
+			r := runner.NewRunner(false, false)
+			g := git.New(r, ".")
+			branches, _ := g.ListBranches()
+			if len(branches) == 0 {
+				branches = []string{"main", "develop", "master"}
+			}
+
+			result, err := ui.RunInitForm(defaults, branches)
+			if err != nil {
+				return err
+			}
+
+			partial := result.ToPartialConfig()
+			cfg := config.Merge(config.Defaults(), &partial)
+			if err := config.WriteConfig(path, cfg); err != nil {
+				return err
+			}
+		} else {
+			if force {
+				if err := config.ForceWriteDefaults(path); err != nil {
+					return err
+				}
+			} else {
+				if err := config.WriteDefaults(path); err != nil {
+					return err
+				}
+			}
 		}
 
 		u.Success("Created " + path)
-		u.Muted("Edit this file to customize your workflow.")
+		u.Muted("Edit this file to customize your workflow, or run: git sf config edit")
 		return nil
 	},
 }
