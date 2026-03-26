@@ -28,6 +28,12 @@ func New() *UI {
 	return &UI{Out: os.Stdout, In: os.Stdin, theme: DefaultTheme()}
 }
 
+// ShouldPrompt reports whether optional interactive prompts should be shown.
+// AutoConfirm disables these prompts so commands can proceed with defaults.
+func (u *UI) ShouldPrompt() bool {
+	return u.Interactive && !u.AutoConfirm
+}
+
 // Success prints a message with a green checkmark prefix.
 func (u *UI) Success(msg string) {
 	_, _ = fmt.Fprintf(u.Out, "  %s %s\n", u.theme.Success.Render(u.theme.IconDone), msg)

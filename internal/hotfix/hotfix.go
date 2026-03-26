@@ -15,6 +15,8 @@ import (
 	"github.com/milis92/git-simple-flow/internal/version"
 )
 
+var runTitlePrompt = ui.RunTitlePrompt
+
 // Service orchestrates git, GitHub CLI, UI, and config to execute
 // the hotfix branch workflow.
 type Service struct {
@@ -84,20 +86,12 @@ func (s *Service) Start(name string, opts StartOpts) error {
 		if err := s.GH.CheckAuthenticated(); err != nil {
 			return err
 		}
-		if err := s.Git.Push(branchName); err != nil {
+		title, _, err := s.resolvePRInput(branchName, opts.Title, "", false)
+		if err != nil {
 			return err
 		}
-		title := opts.Title
-		if title == "" && s.UI.Interactive {
-			defaultTitle := gh.HumanizeBranchName(branchName, s.Config.HotfixPrefix)
-			result, promptErr := ui.RunTitlePrompt(defaultTitle, false)
-			if promptErr != nil {
-				return promptErr
-			}
-			title = result.Title
-		}
-		if title == "" {
-			title = gh.HumanizeBranchName(branchName, s.Config.HotfixPrefix)
+		if err := s.Git.Push(branchName); err != nil {
+			return err
 		}
 		pr, err := s.GH.CreatePR(s.Config.MainBranch, title, "", true)
 		if err != nil {
@@ -133,27 +127,15 @@ func (s *Service) Publish(opts PublishOpts) error {
 		return err
 	}
 
+	title, body, err := s.resolvePRInput(branch, opts.Title, opts.Body, true)
+	if err != nil {
+		return err
+	}
+
 	if err := s.Git.Push(branch); err != nil {
 		return err
 	}
 	s.UI.Success("Pushed " + branch)
-
-	title := opts.Title
-	body := opts.Body
-	if title == "" && s.UI.Interactive {
-		defaultTitle := gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
-		result, promptErr := ui.RunTitlePrompt(defaultTitle, true)
-		if promptErr != nil {
-			return promptErr
-		}
-		title = result.Title
-		if body == "" {
-			body = result.Body
-		}
-	}
-	if title == "" {
-		title = gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
-	}
 
 	pr, err := s.GH.CreatePR(s.Config.MainBranch, title, body, false)
 	if err != nil {
@@ -163,6 +145,26 @@ func (s *Service) Publish(opts PublishOpts) error {
 
 	s.UI.Result("PR is up. When ready: git sf hotfix finish")
 	return nil
+}
+
+func (s *Service) resolvePRInput(branch, title, body string, includeBody bool) (string, string, error) {
+	if title == "" && s.UI.ShouldPrompt() {
+		defaultTitle := gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
+		result, err := runTitlePrompt(defaultTitle, includeBody)
+		if err != nil {
+			return "", "", err
+		}
+		title = result.Title
+		if includeBody && body == "" {
+			body = result.Body
+		}
+	}
+
+	if title == "" {
+		title = gh.HumanizeBranchName(branch, s.Config.HotfixPrefix)
+	}
+
+	return title, body, nil
 }
 
 // Finish merges the current hotfix PR and cleans up. After merging and branch

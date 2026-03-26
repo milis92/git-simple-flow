@@ -11,6 +11,8 @@ import (
 	"github.com/milis92/git-simple-flow/internal/version"
 )
 
+var runMessagePrompt = ui.RunMessagePrompt
+
 // Service orchestrates git, UI, and config to execute the release workflow.
 type Service struct {
 	Git    *git.Git
@@ -89,9 +91,9 @@ func (s *Service) Release(scope, message string) error {
 
 	s.UI.Blank()
 
-	if message == "" && s.UI.Interactive {
+	if message == "" && s.UI.ShouldPrompt() {
 		var promptErr error
-		message, promptErr = ui.RunMessagePrompt(newTag)
+		message, promptErr = runMessagePrompt(newTag)
 		if promptErr != nil {
 			return promptErr
 		}

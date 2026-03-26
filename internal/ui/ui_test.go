@@ -116,3 +116,44 @@ func TestConfirmAutoConfirm(t *testing.T) {
 		t.Errorf("output should contain 'auto-confirmed', got %q", buf.String())
 	}
 }
+
+func TestShouldPrompt(t *testing.T) {
+	tests := []struct {
+		name string
+		ui   UI
+		want bool
+	}{
+		{
+			name: "interactive prompt allowed",
+			ui: UI{
+				Interactive: true,
+				AutoConfirm: false,
+			},
+			want: true,
+		},
+		{
+			name: "auto confirm disables optional prompts",
+			ui: UI{
+				Interactive: true,
+				AutoConfirm: true,
+			},
+			want: false,
+		},
+		{
+			name: "non interactive disables prompts",
+			ui: UI{
+				Interactive: false,
+				AutoConfirm: false,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ui.ShouldPrompt(); got != tt.want {
+				t.Errorf("ShouldPrompt() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
