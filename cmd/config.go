@@ -34,6 +34,11 @@ var initCmd = &cobra.Command{
 			}
 		}
 
+		if dryRun {
+			u.Success("(dry-run) Would create " + path)
+			return nil
+		}
+
 		if shouldUseInitWizard(u) {
 			defaults := initWizardDefaults(path, force)
 

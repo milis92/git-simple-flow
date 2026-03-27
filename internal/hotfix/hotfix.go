@@ -444,6 +444,8 @@ func (s *Service) discardClassic(branch string, reason string) error {
 		} else {
 			s.UI.Success("Closed PR")
 		}
+	} else {
+		s.UI.Warning("gh CLI not available — skipping PR close")
 	}
 
 	if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
