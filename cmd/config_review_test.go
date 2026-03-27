@@ -169,6 +169,93 @@ func TestConfigEditYesCreatesUsableConfigWhenRepoFileMissing(t *testing.T) {
 	}
 }
 
+func TestConfigEditRequiresRepository(t *testing.T) {
+	workDir := t.TempDir()
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(origWD); chdirErr != nil {
+			t.Fatalf("restore cwd: %v", chdirErr)
+		}
+	}()
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	oldDryRun, oldVerbose := dryRun, verbose
+	oldNoInteractive, oldAutoConfirm := noInteractive, autoConfirm
+	dryRun = false
+	verbose = false
+	noInteractive = true
+	autoConfirm = true
+	defer func() {
+		dryRun = oldDryRun
+		verbose = oldVerbose
+		noInteractive = oldNoInteractive
+		autoConfirm = oldAutoConfirm
+	}()
+
+	err = configEditCmd.RunE(configEditCmd, nil)
+	if err == nil {
+		t.Fatal("configEditCmd.RunE() error = nil, want repository validation failure")
+	}
+
+	configPath := filepath.Join(workDir, ".sfconfig.yml")
+	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
+		t.Fatalf("config edit should not create %s outside a git repository, stat err = %v", configPath, statErr)
+	}
+}
+
+func TestInitCmdRequiresRepository(t *testing.T) {
+	workDir := t.TempDir()
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(origWD); chdirErr != nil {
+			t.Fatalf("restore cwd: %v", chdirErr)
+		}
+	}()
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	oldDryRun, oldVerbose := dryRun, verbose
+	oldNoInteractive, oldAutoConfirm := noInteractive, autoConfirm
+	dryRun = false
+	verbose = false
+	noInteractive = true
+	autoConfirm = false
+	defer func() {
+		dryRun = oldDryRun
+		verbose = oldVerbose
+		noInteractive = oldNoInteractive
+		autoConfirm = oldAutoConfirm
+	}()
+
+	if err := initCmd.Flags().Set("force", "false"); err != nil {
+		t.Fatalf("Set(force) error = %v", err)
+	}
+
+	err = initCmd.RunE(initCmd, nil)
+	if err == nil {
+		t.Fatal("initCmd.RunE() error = nil, want repository validation failure")
+	}
+
+	configPath := filepath.Join(workDir, ".sfconfig.yml")
+	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
+		t.Fatalf("init should not create %s outside a git repository, stat err = %v", configPath, statErr)
+	}
+}
+
 func TestDetectBranchesDryRunUsesRealBranches(t *testing.T) {
 	repoDir := initConfigEditRepo(t)
 	runConfigGit(t, repoDir, "checkout", "-b", "trunk")

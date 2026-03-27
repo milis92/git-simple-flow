@@ -25,7 +25,11 @@ var initCmd = &cobra.Command{
 	Short: "Create .sfconfig.yml with default settings",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		u := newUI()
-		path := filepath.Join(repoRoot(), ".sfconfig.yml")
+		root, err := repoRoot()
+		if err != nil {
+			return fmt.Errorf("init requires a git repository: %w", err)
+		}
+		path := filepath.Join(root, ".sfconfig.yml")
 		force, _ := cmd.Flags().GetBool("force")
 
 		if !force {
@@ -97,7 +101,11 @@ var configEditCmd = &cobra.Command{
 	Short: "Interactively edit .sfconfig.yml",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		u := newUI()
-		path := filepath.Join(repoRoot(), ".sfconfig.yml")
+		root, err := repoRoot()
+		if err != nil {
+			return fmt.Errorf("config edit requires a git repository: %w", err)
+		}
+		path := filepath.Join(root, ".sfconfig.yml")
 
 		if !u.Interactive && !u.AutoConfirm {
 			return fmt.Errorf("config edit requires an interactive terminal (remove --no-interactive or edit .sfconfig.yml directly)")
@@ -179,7 +187,6 @@ var configCmd = &cobra.Command{
 	Short: "Show effective configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		u := newUI()
-		repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
 
 		// Load individual layers to show source. Warnings are collected and
 		// printed after the config table so they don't interfere with the
@@ -204,12 +211,21 @@ var configCmd = &cobra.Command{
 			}
 		}
 
-		repo, repoWarnings, repoErr := loadPartialConfig(repoPath)
-		if repoErr != nil {
-			configWarnings = append(configWarnings, fmt.Sprintf("Could not load repo config %s: %s", repoPath, repoErr))
-		}
-		for _, warning := range repoWarnings {
-			configWarnings = append(configWarnings, fmt.Sprintf("Ignoring invalid repo config %s: %s", repoPath, warning))
+		var repo *config.PartialConfig
+		root, rootErr := repoRoot()
+		if rootErr != nil {
+			configWarnings = append(configWarnings, fmt.Sprintf("Could not determine repository root: %s", rootErr))
+		} else {
+			repoPath := filepath.Join(root, ".sfconfig.yml")
+			var repoWarnings []error
+			var repoErr error
+			repo, repoWarnings, repoErr = loadPartialConfig(repoPath)
+			if repoErr != nil {
+				configWarnings = append(configWarnings, fmt.Sprintf("Could not load repo config %s: %s", repoPath, repoErr))
+			}
+			for _, warning := range repoWarnings {
+				configWarnings = append(configWarnings, fmt.Sprintf("Ignoring invalid repo config %s: %s", repoPath, warning))
+			}
 		}
 
 		cfg := config.Merge(config.Defaults(), global, repo)

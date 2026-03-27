@@ -34,15 +34,14 @@ func Execute() {
 	}
 }
 
-// repoRoot returns the top-level directory of the current git repository,
-// or "." if it cannot be determined.
-func repoRoot() string {
+// repoRoot returns the top-level directory of the current git repository.
+// It returns an error when the working directory is not inside a git repo.
+func repoRoot() (string, error) {
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not determine repository root: %s (using current directory)\n", err)
-		return "."
+		return "", fmt.Errorf("not a git repository (or any parent): %w", err)
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(string(out)), nil
 }
 
 // loadConfig loads the 3-layer config: built-in defaults, then global
@@ -64,12 +63,20 @@ func loadConfig() config.Config {
 		printConfigWarnings(os.Stderr, "global", globalPath, warnings)
 	}
 
-	repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
-	repo, warnings, err := loadPartialConfig(repoPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not load repo config %s: %s\n", repoPath, err)
+	var repo *config.PartialConfig
+	var repoPath string
+	root, rootErr := repoRoot()
+	if rootErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not determine repository root: %s (using defaults)\n", rootErr)
+	} else {
+		repoPath = filepath.Join(root, ".sfconfig.yml")
+		var warnings []error
+		repo, warnings, err = loadPartialConfig(repoPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not load repo config %s: %s\n", repoPath, err)
+		}
+		printConfigWarnings(os.Stderr, "repo", repoPath, warnings)
 	}
-	printConfigWarnings(os.Stderr, "repo", repoPath, warnings)
 
 	cfg := config.Merge(base, global, repo)
 	if err := cfg.Validate(); err != nil {
