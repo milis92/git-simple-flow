@@ -301,14 +301,19 @@ func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}

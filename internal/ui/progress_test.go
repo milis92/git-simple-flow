@@ -128,7 +128,9 @@ func TestStepCallbacksRunSoftFailSkipsInsteadOfFailing(t *testing.T) {
 		},
 	}
 
-	sc.RunSoftFail(func() error { return errors.New("not authenticated — skipped") })
+	if err := sc.RunSoftFail(func() error { return errors.New("not authenticated — skipped") }); err != nil {
+		t.Fatalf("RunSoftFail() error = %v, want nil for non-context error", err)
+	}
 
 	if started != 1 {
 		t.Fatalf("started = %d, want 1", started)

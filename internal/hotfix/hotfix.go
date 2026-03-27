@@ -235,9 +235,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			return ctx.Err()
 		}
 
-		// Create patch tag
+		// Create patch tag — LatestTag is a read-only query that must
+		// execute even in dry-run mode to resolve the next version.
 		cb.Start()
-		tag, err := ctxGit.LatestTag(s.Config.TagPrefix)
+		tag, err := ctxGit.ForQuery().LatestTag(s.Config.TagPrefix)
 		if err != nil {
 			cb.Fail(err.Error())
 			return err
@@ -392,14 +393,19 @@ func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}

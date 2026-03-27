@@ -93,7 +93,9 @@ func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy 
 		}
 
 		// Delete remote branch (soft fail)
-		cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) })
+		if err := cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) }); err != nil {
+			return err
+		}
 
 		return nil
 	}
@@ -151,7 +153,9 @@ func DiscardWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, reason string
 		}
 
 		// Delete remote branch (soft fail)
-		cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) })
+		if err := cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) }); err != nil {
+			return err
+		}
 
 		return nil
 	}

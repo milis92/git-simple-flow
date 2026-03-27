@@ -2,11 +2,13 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/milis92/git-simple-flow/internal/gh"
 	"github.com/milis92/git-simple-flow/internal/git"
@@ -121,6 +123,60 @@ exit 1
 	}
 }
 
+func TestFinishWorkflowPropagatesCancellationDuringRemoteDelete(t *testing.T) {
+	repoDir := initWorkflowRepoWithRemoteBranch(t, "feature/test")
+	deleteStarted := filepath.Join(t.TempDir(), "delete-started")
+	deleteDone := filepath.Join(t.TempDir(), "delete-done")
+	installWorkflowGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`, "")
+	installWorkflowGit(t, deleteStarted, deleteDone, "feature/test")
+
+	r := runner.NewRunner(false, false)
+	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- wf(ctx, ui.StepCallbacks{
+			Start: func() {},
+			Done:  func() {},
+			Fail:  func(string) {},
+			Skip:  func(string) {},
+		})
+	}()
+
+	waitForWorkflowFile(t, deleteStarted, 2*time.Second)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("FinishWorkflow() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("FinishWorkflow() did not stop after cancellation")
+	}
+
+	if _, statErr := os.Stat(deleteDone); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("remote delete should not complete after cancellation, stat err = %v", statErr)
+	}
+}
+
 func installWorkflowGH(t *testing.T, script, mergeMarker string) {
 	t.Helper()
 
@@ -134,6 +190,32 @@ func installWorkflowGH(t *testing.T, script, mergeMarker string) {
 	if mergeMarker != "" {
 		t.Setenv("MERGE_MARKER", mergeMarker)
 	}
+}
+
+func installWorkflowGit(t *testing.T, deleteStarted, deleteDone, branch string) {
+	t.Helper()
+
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("LookPath(git) error = %v", err)
+	}
+
+	binDir := t.TempDir()
+	gitPath := filepath.Join(binDir, "git")
+	script := `#!/bin/sh
+if [ "$1" = "-C" ] && [ "$3" = "push" ] && [ "$4" = "origin" ] && [ "$5" = "--delete" ] && [ "$6" = "$WORKFLOW_DELETE_BRANCH" ]; then
+  exec env GO_WANT_WORKFLOW_HELPER_PROCESS=1 WORKFLOW_DELETE_STARTED="$WORKFLOW_DELETE_STARTED" WORKFLOW_DELETE_DONE="$WORKFLOW_DELETE_DONE" "` + os.Args[0] + `" -test.run=TestWorkflowHelperProcess -- remote-delete-helper
+fi
+exec "` + realGit + `" "$@"
+`
+	if err := os.WriteFile(gitPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+	t.Setenv("WORKFLOW_DELETE_STARTED", deleteStarted)
+	t.Setenv("WORKFLOW_DELETE_DONE", deleteDone)
+	t.Setenv("WORKFLOW_DELETE_BRANCH", branch)
 }
 
 func initWorkflowRepo(t *testing.T) string {
@@ -188,4 +270,52 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	}
 
 	return strings.TrimSpace(string(out))
+}
+
+func waitForWorkflowFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestWorkflowHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_WORKFLOW_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	args := helperArgs(os.Args)
+	if len(args) != 1 || args[0] != "remote-delete-helper" {
+		os.Exit(2)
+	}
+
+	if err := os.WriteFile(os.Getenv("WORKFLOW_DELETE_STARTED"), []byte("started"), 0644); err != nil {
+		os.Exit(1)
+	}
+
+	time.Sleep(5 * time.Second)
+
+	if err := os.WriteFile(os.Getenv("WORKFLOW_DELETE_DONE"), []byte("done"), 0644); err != nil {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
+func helperArgs(args []string) []string {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[i+1:]
+		}
+	}
+
+	return nil
 }

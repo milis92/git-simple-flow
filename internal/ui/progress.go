@@ -252,13 +252,20 @@ func (cb StepCallbacks) Run(fn func() error) error {
 
 // RunSoftFail executes fn as the current step. On failure it marks the step
 // as skipped (not failed) and returns nil, allowing the workflow to continue.
-func (cb StepCallbacks) RunSoftFail(fn func() error) {
+// Context cancellation errors are not swallowed — they are propagated so the
+// caller can detect user interruption.
+func (cb StepCallbacks) RunSoftFail(fn func() error) error {
 	cb.Start()
 	if err := fn(); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			cb.Fail(err.Error())
+			return err
+		}
 		cb.SkipStep(err.Error())
 	} else {
 		cb.Done()
 	}
+	return nil
 }
 
 // SkipStep marks the current step as skipped when the workflow can continue.
