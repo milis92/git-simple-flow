@@ -196,6 +196,35 @@ func TestFinishClassicBlocksPendingOrCancelledChecks(t *testing.T) {
 	}
 }
 
+func TestDiscardClassicWarnsWhenGHUnavailable(t *testing.T) {
+	repoDir := initHotfixRepo(t)
+	installGitOnlyPath(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.Interactive = false
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:            git.New(r, repoDir),
+		GH:             gh.New(r),
+		UI:             u,
+		Config:         config.Defaults(),
+		RunTitlePrompt: ui.RunTitlePrompt,
+		RunProgress:    ui.RunProgress,
+	}
+
+	if err := svc.Discard(""); err != nil {
+		t.Fatalf("Discard() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "gh CLI not available — skipping PR close") {
+		t.Fatalf("Discard() output = %q, want gh unavailable warning", out.String())
+	}
+}
+
 func initHotfixRepo(t *testing.T) string {
 	t.Helper()
 
@@ -226,6 +255,24 @@ func installFakeGH(t *testing.T) {
 	}
 
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installGitOnlyPath(t *testing.T) {
+	t.Helper()
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("LookPath(git) error = %v", err)
+	}
+
+	binDir := t.TempDir()
+	gitWrapper := filepath.Join(binDir, "git")
+	script := "#!/bin/sh\nexec \"" + gitPath + "\" \"$@\"\n"
+	if err := os.WriteFile(gitWrapper, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir)
 }
 
 func installNoPRGH(t *testing.T) {

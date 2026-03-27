@@ -142,13 +142,19 @@ var configEditCmd = &cobra.Command{
 			HotfixAutoRelease:  cfg.HotfixAutoRelease,
 		}
 
-		r := runner.NewRunner(dryRun, verbose)
-		g := git.New(r, ".")
-		branches := detectBranches(g, u)
+		var result ui.InitFormResult
+		if u.ShouldPrompt() {
+			r := runner.NewRunner(dryRun, verbose)
+			g := git.New(r, ".")
+			branches := detectBranches(g, u)
 
-		result, err := ui.RunInitForm(defaults, branches)
-		if err != nil {
-			return err
+			var err error
+			result, err = ui.RunInitForm(defaults, branches)
+			if err != nil {
+				return err
+			}
+		} else {
+			result = defaults
 		}
 
 		partial := buildRepoConfigForEdit(inherited, repo, result)

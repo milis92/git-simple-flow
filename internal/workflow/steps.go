@@ -30,10 +30,10 @@ func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy 
 		ctxGit := g.WithContext(ctx)
 		ctxGH := ghCli.WithContext(ctx)
 
-		// Check CI
+		// Check CI — read-only query, must execute even in dry-run mode
 		cb.Start()
 		if !force {
-			checks, err := ctxGH.GetPRChecks()
+			checks, err := ctxGH.ForQuery().GetPRChecks()
 			if err != nil {
 				cb.Fail(fmt.Sprintf("could not fetch PR checks: %s", err))
 				return fmt.Errorf("could not fetch PR checks: %w", err)

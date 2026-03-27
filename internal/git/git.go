@@ -29,6 +29,12 @@ func (g *Git) WithContext(ctx context.Context) *Git {
 	return &Git{runner: g.runner.WithContext(ctx), dir: g.dir}
 }
 
+// ForQuery returns a copy of Git that always executes commands, even during
+// dry-run mode. Use this for read-only operations like CurrentBranch.
+func (g *Git) ForQuery() *Git {
+	return &Git{runner: g.runner.ForQuery(), dir: g.dir}
+}
+
 // run executes a git command with -C <dir> prepended to the arguments.
 func (g *Git) run(args ...string) (string, error) {
 	fullArgs := append([]string{"-C", g.dir}, args...)

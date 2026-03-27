@@ -41,6 +41,15 @@ func (r *Runner) WithContext(ctx context.Context) *Runner {
 	return &cloned
 }
 
+// ForQuery returns a shallow copy of the runner with DryRun disabled so that
+// read-only queries (e.g. current branch, PR status) execute even during a
+// dry-run preview.
+func (r *Runner) ForQuery() *Runner {
+	cloned := *r
+	cloned.DryRun = false
+	return &cloned
+}
+
 // Run executes the named command with the given arguments. It captures stdout
 // and returns it as a trimmed string. On failure, the returned error includes
 // the command string and stderr output.

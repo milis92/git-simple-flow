@@ -29,6 +29,12 @@ func (g *GH) WithContext(ctx context.Context) *GH {
 	return &GH{runner: g.runner.WithContext(ctx)}
 }
 
+// ForQuery returns a copy of GH that always executes commands, even during
+// dry-run mode. Use this for read-only operations like GetCurrentPR.
+func (g *GH) ForQuery() *GH {
+	return &GH{runner: g.runner.ForQuery()}
+}
+
 // CheckGHInstalled verifies that the gh CLI is available in PATH.
 func CheckGHInstalled() error {
 	_, err := exec.LookPath("gh")

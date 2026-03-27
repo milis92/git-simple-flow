@@ -164,31 +164,37 @@ func (s *Service) Finish(opts FinishOpts) error {
 	if err := gh.CheckGHInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runners for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+	qGH := s.GH.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.GH.CheckAuthenticated(); err != nil {
+	if err := qGH.CheckAuthenticated(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}
 
 	if s.UI.Interactive {
-		return s.finishInteractive(branch, opts)
+		return s.finishInteractive(branch, opts, qGH)
 	}
-	return s.finishClassic(branch, opts)
+	return s.finishClassic(branch, opts, qGH)
 }
 
 // finishInteractive runs the feature finish workflow using the Bubble Tea
 // progress view. It prompts for confirmation before launching the progress view.
-func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
-	pr, err := s.GH.GetCurrentPR()
+func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) error {
+	pr, err := qGH.GetCurrentPR()
 	if err != nil {
 		return workflow.CurrentPRError(err, "git sf feature publish")
 	}
@@ -219,15 +225,15 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 
 // finishClassic runs the existing print-style feature finish workflow with a
 // confirmation prompt. This is used when the UI is not in interactive mode.
-func (s *Service) finishClassic(branch string, opts FinishOpts) error {
-	pr, err := s.GH.GetCurrentPR()
+func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) error {
+	pr, err := qGH.GetCurrentPR()
 	if err != nil {
 		return workflow.CurrentPRError(err, "git sf feature publish")
 	}
 	s.UI.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
 
 	if !opts.Force {
-		checks, err := s.GH.GetPRChecks()
+		checks, err := qGH.GetPRChecks()
 		if err != nil {
 			return fmt.Errorf("could not fetch PR checks: %w", err)
 		}

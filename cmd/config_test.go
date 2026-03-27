@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/milis92/git-simple-flow/internal/config"
@@ -368,4 +370,61 @@ func TestConfigBoolSource(t *testing.T) {
 	if got := configBoolSource(nil, nil, func(c *config.PartialConfig) *bool { return c.DraftPROnStart }); got != defaultConfigSource {
 		t.Errorf("configBoolSource() = %q, want %q", got, defaultConfigSource)
 	}
+}
+
+func TestInitCmdDryRunDoesNotWriteConfig(t *testing.T) {
+	repoDir := t.TempDir()
+	runConfigGit(t, repoDir, "init")
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(origWD); chdirErr != nil {
+			t.Fatalf("restore cwd: %v", chdirErr)
+		}
+	}()
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	oldDryRun, oldVerbose := dryRun, verbose
+	oldNoInteractive, oldAutoConfirm := noInteractive, autoConfirm
+	dryRun = true
+	verbose = false
+	noInteractive = true
+	autoConfirm = false
+	defer func() {
+		dryRun = oldDryRun
+		verbose = oldVerbose
+		noInteractive = oldNoInteractive
+		autoConfirm = oldAutoConfirm
+	}()
+
+	if err := initCmd.Flags().Set("force", "false"); err != nil {
+		t.Fatalf("Set(force) error = %v", err)
+	}
+
+	if err := initCmd.RunE(initCmd, nil); err != nil {
+		t.Fatalf("initCmd.RunE() error = %v", err)
+	}
+
+	configPath := filepath.Join(repoDir, ".sfconfig.yml")
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config file should not be written during --dry-run, stat err = %v", err)
+	}
+}
+
+func runConfigGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+
+	return strings.TrimSpace(string(out))
 }
