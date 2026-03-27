@@ -234,11 +234,11 @@ func (s *Service) finishClassic(branch string, opts FinishOpts) error {
 		for _, c := range checks {
 			switch {
 			case gh.CheckIsPending(c):
-				s.UI.Warning(c.Name + " — " + c.Status)
+				s.UI.Warning(c.Name + " — " + c.State)
 			case gh.CheckAllowsMerge(c):
-				s.UI.Success(c.Name + " — " + c.Conclusion)
+				s.UI.Success(c.Name + " — " + c.State)
 			default:
-				s.UI.Error(c.Name + " — " + c.Conclusion)
+				s.UI.Error(c.Name + " — " + c.State)
 			}
 		}
 		failing, pending := gh.ClassifyChecks(checks)
@@ -354,7 +354,7 @@ func (s *Service) discardClassic(branch string, reason string) error {
 	if ghErr := gh.CheckGHInstalled(); ghErr == nil {
 		if err := s.GH.CheckAuthenticated(); err != nil {
 			s.UI.Warning("gh not authenticated — skipping PR close")
-		} else if err := s.GH.ClosePR(reason); err != nil {
+		} else if err := s.GH.ClosePR(branch, reason); err != nil {
 			s.UI.Warning("Could not close PR (may not exist): " + err.Error())
 		} else {
 			s.UI.Success("Closed PR")

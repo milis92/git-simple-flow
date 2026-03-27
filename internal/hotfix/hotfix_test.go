@@ -151,17 +151,17 @@ func TestFinishClassicBlocksPendingOrCancelledChecks(t *testing.T) {
 	}{
 		{
 			name:       "pending checks block merge",
-			checksJSON: `[{"name":"build","status":"in_progress","conclusion":""}]`,
+			checksJSON: `[{"name":"build","state":"PENDING","bucket":"pending"}]`,
 			want:       "PR checks still running: build (use --force to override)",
 		},
 		{
 			name:       "cancelled checks block merge",
-			checksJSON: `[{"name":"lint","status":"completed","conclusion":"cancelled"}]`,
+			checksJSON: `[{"name":"lint","state":"CANCELLED","bucket":"cancel"}]`,
 			want:       "PR checks failed: lint (use --force to override)",
 		},
 		{
 			name:       "timed out checks block merge",
-			checksJSON: `[{"name":"integration","status":"completed","conclusion":"timed_out"}]`,
+			checksJSON: `[{"name":"integration","state":"TIMED_OUT","bucket":"fail"}]`,
 			want:       "PR checks failed: integration (use --force to override)",
 		},
 	}

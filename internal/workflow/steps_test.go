@@ -19,7 +19,7 @@ func TestFinishWorkflowBlocksTimedOutChecksBeforeMerge(t *testing.T) {
 	mergeMarker := filepath.Join(t.TempDir(), "merged")
 	installWorkflowGH(t, `#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
-  echo '[{"name":"integration","status":"completed","conclusion":"timed_out"}]'
+  echo '[{"name":"integration","state":"TIMED_OUT","bucket":"fail"}]'
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then

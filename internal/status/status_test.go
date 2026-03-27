@@ -23,7 +23,7 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
-  echo '[{"name":"build","status":"completed","conclusion":"success"},{"name":"docs","status":"completed","conclusion":"neutral"},{"name":"e2e","status":"completed","conclusion":"timed_out"},{"name":"lint","status":"in_progress","conclusion":""}]'
+  echo '[{"name":"build","state":"SUCCESS","bucket":"pass"},{"name":"docs","state":"NEUTRAL","bucket":"skipping"},{"name":"e2e","state":"TIMED_OUT","bucket":"fail"},{"name":"lint","state":"PENDING","bucket":"pending"}]'
   exit 0
 fi
 echo "unexpected gh command: $*" >&2

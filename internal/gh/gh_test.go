@@ -79,18 +79,20 @@ exit 1
 
 func TestCheckIsPending(t *testing.T) {
 	tests := []struct {
-		status string
+		bucket string
 		want   bool
 	}{
-		{"in_progress", true},
-		{"queued", true},
-		{"completed", false},
+		{"pending", true},
+		{"pass", false},
+		{"fail", false},
+		{"skipping", false},
+		{"cancel", false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.status, func(t *testing.T) {
-			got := CheckIsPending(CheckStatus{Status: tt.status})
+		t.Run(tt.bucket, func(t *testing.T) {
+			got := CheckIsPending(CheckStatus{Bucket: tt.bucket})
 			if got != tt.want {
-				t.Errorf("CheckIsPending(status=%q) = %v, want %v", tt.status, got, tt.want)
+				t.Errorf("CheckIsPending(bucket=%q) = %v, want %v", tt.bucket, got, tt.want)
 			}
 		})
 	}
@@ -98,27 +100,22 @@ func TestCheckIsPending(t *testing.T) {
 
 func TestCheckAllowsMerge(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     string
-		conclusion string
-		want       bool
+		name   string
+		bucket string
+		want   bool
 	}{
-		{"success", "completed", "success", true},
-		{"neutral", "completed", "neutral", true},
-		{"skipped", "completed", "skipped", true},
-		{"failure", "completed", "failure", false},
-		{"cancelled", "completed", "cancelled", false},
-		{"timed_out", "completed", "timed_out", false},
-		{"action_required", "completed", "action_required", false},
-		{"stale", "completed", "stale", false},
-		{"pending blocks", "in_progress", "success", false},
+		{"pass", "pass", true},
+		{"skipping", "skipping", true},
+		{"fail", "fail", false},
+		{"cancel", "cancel", false},
+		{"pending", "pending", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CheckAllowsMerge(CheckStatus{Status: tt.status, Conclusion: tt.conclusion})
+			got := CheckAllowsMerge(CheckStatus{Bucket: tt.bucket})
 			if got != tt.want {
-				t.Errorf("CheckAllowsMerge(status=%q, conclusion=%q) = %v, want %v",
-					tt.status, tt.conclusion, got, tt.want)
+				t.Errorf("CheckAllowsMerge(bucket=%q) = %v, want %v",
+					tt.bucket, got, tt.want)
 			}
 		})
 	}
@@ -138,32 +135,32 @@ func TestClassifyChecks(t *testing.T) {
 		{
 			name: "all passing",
 			checks: []CheckStatus{
-				{Name: "build", Status: "completed", Conclusion: "success"},
-				{Name: "lint", Status: "completed", Conclusion: "neutral"},
+				{Name: "build", State: "SUCCESS", Bucket: "pass"},
+				{Name: "lint", State: "SKIPPING", Bucket: "skipping"},
 			},
 		},
 		{
 			name: "one failing",
 			checks: []CheckStatus{
-				{Name: "build", Status: "completed", Conclusion: "success"},
-				{Name: "test", Status: "completed", Conclusion: "failure"},
+				{Name: "build", State: "SUCCESS", Bucket: "pass"},
+				{Name: "test", State: "FAILURE", Bucket: "fail"},
 			},
 			wantFailing: []string{"test"},
 		},
 		{
 			name: "one pending",
 			checks: []CheckStatus{
-				{Name: "build", Status: "completed", Conclusion: "success"},
-				{Name: "deploy", Status: "in_progress"},
+				{Name: "build", State: "SUCCESS", Bucket: "pass"},
+				{Name: "deploy", State: "PENDING", Bucket: "pending"},
 			},
 			wantPending: []string{"deploy"},
 		},
 		{
 			name: "mixed",
 			checks: []CheckStatus{
-				{Name: "build", Status: "completed", Conclusion: "failure"},
-				{Name: "lint", Status: "in_progress"},
-				{Name: "test", Status: "completed", Conclusion: "success"},
+				{Name: "build", State: "FAILURE", Bucket: "fail"},
+				{Name: "lint", State: "PENDING", Bucket: "pending"},
+				{Name: "test", State: "SUCCESS", Bucket: "pass"},
 			},
 			wantFailing: []string{"build"},
 			wantPending: []string{"lint"},

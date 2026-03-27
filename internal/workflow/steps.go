@@ -122,7 +122,7 @@ func DiscardWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, reason string
 			cb.SkipStep("gh CLI not available — skipped")
 		} else if authErr := ctxGH.CheckAuthenticated(); authErr != nil {
 			cb.SkipStep("not authenticated — skipped")
-		} else if err := ctxGH.ClosePR(reason); err != nil {
+		} else if err := ctxGH.ClosePR(branch, reason); err != nil {
 			cb.SkipStep(fmt.Sprintf("could not close PR: %s", err))
 		} else {
 			cb.Done()

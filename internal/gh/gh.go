@@ -79,10 +79,10 @@ func (g *GH) MergePR(strategy string) error {
 	return err
 }
 
-// ClosePR closes the current branch's PR. If reason is non-empty,
-// it is posted as a comment before closing.
-func (g *GH) ClosePR(reason string) error {
-	args := []string{"pr", "close"}
+// ClosePR closes the PR associated with the given branch. If reason is
+// non-empty, it is posted as a comment before closing.
+func (g *GH) ClosePR(branch, reason string) error {
+	args := []string{"pr", "close", branch}
 	if reason != "" {
 		args = append(args, "--comment", reason)
 	}
@@ -118,30 +118,22 @@ func isNoPRViewError(err error) bool {
 }
 
 // CheckStatus holds the result of a single CI check on a PR.
+// Fields map to the gh pr checks --json schema: name, state, bucket.
 type CheckStatus struct {
-	Name       string
-	Status     string // e.g. "completed", "in_progress"
-	Conclusion string // e.g. "success", "failure"
+	Name   string `json:"name"`
+	State  string `json:"state"`  // e.g. "SUCCESS", "FAILURE", "PENDING"
+	Bucket string `json:"bucket"` // e.g. "pass", "fail", "pending", "skipping", "cancel"
 }
 
-// CheckIsPending reports whether the check has not reached a completed state yet.
+// CheckIsPending reports whether the check has not reached a terminal state yet.
 func CheckIsPending(check CheckStatus) bool {
-	return check.Status != "completed"
+	return check.Bucket == "pending"
 }
 
-// CheckAllowsMerge reports whether a completed check should be treated as
+// CheckAllowsMerge reports whether a check should be treated as
 // passing for merge gating purposes.
 func CheckAllowsMerge(check CheckStatus) bool {
-	return !CheckIsPending(check) && isPassingConclusion(check.Conclusion)
-}
-
-func isPassingConclusion(conclusion string) bool {
-	switch conclusion {
-	case "success", "neutral", "skipped":
-		return true
-	default:
-		return false
-	}
+	return check.Bucket == "pass" || check.Bucket == "skipping"
 }
 
 // ClassifyChecks splits checks into merge-blocking failures and in-progress checks.
@@ -157,9 +149,9 @@ func ClassifyChecks(checks []CheckStatus) (failing, pending []string) {
 	return failing, pending
 }
 
-// GetPRChecks fetches CI check results for the current branch's PR.
+// GetPRChecks fetches required CI check results for the current branch's PR.
 func (g *GH) GetPRChecks() ([]CheckStatus, error) {
-	out, err := g.runner.Run("gh", "pr", "checks", "--json", "name,status,conclusion")
+	out, err := g.runner.Run("gh", "pr", "checks", "--required", "--json", "name,state,bucket")
 	if err != nil {
 		return nil, err
 	}
