@@ -4,6 +4,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -55,6 +56,58 @@ func (r *Runner) ForQuery() *Runner {
 // the command string and stderr output.
 func (r *Runner) Run(name string, args ...string) (string, error) {
 	return r.RunContext(r.Context, name, args...)
+}
+
+// RunAllowingExitCodes executes the command and returns stdout even when the
+// process exits with one of the listed codes. Other non-zero exits are still
+// treated as errors. This is useful for tools like `gh pr checks` that use
+// specific exit codes to signal non-failure states (e.g. 8 = pending checks).
+func (r *Runner) RunAllowingExitCodes(allowed []int, name string, args ...string) (string, error) {
+	cmdStr := name + " " + strings.Join(args, " ")
+
+	if r.DryRun {
+		_, _ = fmt.Fprintf(r.Output, "  [dry-run] %s\n", cmdStr)
+		return "", nil
+	}
+
+	if r.Verbose {
+		_, _ = fmt.Fprintf(r.Output, "  $ %s\n", cmdStr)
+	}
+
+	ctx := r.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return strings.TrimSpace(stdout.String()), nil
+	}
+
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		code := exitErr.ExitCode()
+		for _, c := range allowed {
+			if code == c {
+				return strings.TrimSpace(stdout.String()), nil
+			}
+		}
+	}
+
+	stderrText := strings.TrimSpace(stderr.String())
+	if stderrText != "" {
+		return "", fmt.Errorf("%s: %s", cmdStr, stderrText)
+	}
+	return "", fmt.Errorf("%s: %w", cmdStr, err)
 }
 
 // RunContext executes the named command with the given context. If the context

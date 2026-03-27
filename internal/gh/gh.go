@@ -156,8 +156,9 @@ func ClassifyChecks(checks []CheckStatus) (failing, pending []string) {
 }
 
 // GetPRChecks fetches required CI check results for the current branch's PR.
+// Exit code 8 from gh indicates pending checks — stdout still contains valid JSON.
 func (g *GH) GetPRChecks() ([]CheckStatus, error) {
-	out, err := g.runner.Run("gh", "pr", "checks", "--required", "--json", "name,state,bucket")
+	out, err := g.runner.RunAllowingExitCodes([]int{8}, "gh", "pr", "checks", "--required", "--json", "name,state,bucket")
 	if err != nil {
 		return nil, err
 	}

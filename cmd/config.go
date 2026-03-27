@@ -234,7 +234,7 @@ var configCmd = &cobra.Command{
 		u.Blank()
 
 		for _, w := range configWarnings {
-			u.Muted(w)
+			_, _ = fmt.Fprintf(os.Stderr, "  %s\n", w)
 		}
 
 		return nil
