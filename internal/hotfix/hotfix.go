@@ -57,16 +57,40 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
-	tag, err := s.Git.LatestTag(s.Config.TagPrefix)
+	tag, err := qGit.LatestTag(s.Config.TagPrefix)
 	if err != nil {
 		return fmt.Errorf("no tags found. Create an initial release first with 'git sf release'")
+	}
+
+	branchName := s.Config.HotfixPrefix + name
+
+	// When a draft PR is requested, resolve the interactive prompt before
+	// mutating any repo state so a user cancellation leaves no partial branch.
+	var draftTitle string
+	if opts.DraftPR || s.Config.DraftPROnStart {
+		if err := gh.CheckGHInstalled(); err != nil {
+			return err
+		}
+		if err := s.GH.ForQuery().CheckAuthenticated(); err != nil {
+			return err
+		}
+		t, _, err := workflow.ResolvePRInput(s.UI, s.RunTitlePrompt, branchName, s.Config.HotfixPrefix, opts.Title, "", false)
+		if err != nil {
+			return err
+		}
+		draftTitle = t
 	}
 
 	if err := s.Git.Checkout(tag); err != nil {
@@ -74,27 +98,16 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	}
 	s.UI.Success("Checked out " + tag)
 
-	branchName := s.Config.HotfixPrefix + name
 	if err := s.Git.CreateBranch(branchName); err != nil {
 		return err
 	}
 	s.UI.Success("Created branch " + branchName)
 
-	if opts.DraftPR || s.Config.DraftPROnStart {
-		if err := gh.CheckGHInstalled(); err != nil {
-			return err
-		}
-		if err := s.GH.CheckAuthenticated(); err != nil {
-			return err
-		}
-		title, _, err := workflow.ResolvePRInput(s.UI, s.RunTitlePrompt, branchName, s.Config.HotfixPrefix, opts.Title, "", false)
-		if err != nil {
-			return err
-		}
+	if draftTitle != "" {
 		if err := s.Git.Push(branchName); err != nil {
 			return err
 		}
-		pr, err := s.GH.CreatePR(s.Config.MainBranch, title, "", true)
+		pr, err := s.GH.CreatePR(s.Config.MainBranch, draftTitle, "", true)
 		if err != nil {
 			return err
 		}
@@ -114,11 +127,17 @@ func (s *Service) Publish(opts PublishOpts) error {
 	if err := gh.CheckGHInstalled(); err != nil {
 		return err
 	}
-	if err := s.GH.CheckAuthenticated(); err != nil {
+
+	// Use query-mode runners for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+	qGH := s.GH.ForQuery()
+
+	if err := qGH.CheckAuthenticated(); err != nil {
 		return err
 	}
 
-	clean, err := s.Git.IsClean()
+	clean, err := qGit.IsClean()
 	if err != nil {
 		return err
 	}
@@ -126,7 +145,7 @@ func (s *Service) Publish(opts PublishOpts) error {
 		s.UI.Warning("You have uncommitted changes that won't be included in the PR.")
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}
@@ -353,7 +372,7 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 
 	// Auto-release if --release flag or config
 	if opts.Release || s.Config.HotfixAutoRelease {
-		tag, err := s.Git.LatestTag(s.Config.TagPrefix)
+		tag, err := s.Git.ForQuery().LatestTag(s.Config.TagPrefix)
 		if err != nil {
 			return err
 		}
@@ -455,7 +474,7 @@ func (s *Service) discardClassic(branch string, reason string) error {
 	}
 
 	if err := gh.CheckGHInstalled(); err == nil {
-		if err := s.GH.CheckAuthenticated(); err != nil {
+		if err := s.GH.ForQuery().CheckAuthenticated(); err != nil {
 			s.UI.Warning("gh not authenticated — skipping PR close")
 		} else if err := s.GH.ClosePR(branch, reason); err != nil {
 			s.UI.Warning(fmt.Sprintf("Could not close PR: %s", err))

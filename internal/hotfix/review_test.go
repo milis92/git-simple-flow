@@ -3,6 +3,7 @@ package hotfix
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,6 +126,27 @@ func TestFinishInteractiveReleaseDryRunUsesRealRepoState(t *testing.T) {
 	}
 }
 
+func TestFinishClassicReleaseDryRunUsesRealRepoState(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleaseGH(t)
+
+	r := runner.NewRunner(true, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("Finish() error = %v, want non-interactive dry-run release preview to succeed", err)
+	}
+}
+
 func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 
@@ -157,6 +179,162 @@ func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	if progressBranch != "hotfix/test" {
 		t.Fatalf("progress branch = %q, want %q", progressBranch, "hotfix/test")
 	}
+}
+
+func TestDiscardClassicDryRunChecksRealGHAuth(t *testing.T) {
+	repoDir := initHotfixRepo(t)
+	installDiscardAuthFailureGH(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(true, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Discard(""); err != nil {
+		t.Fatalf("Discard() error = %v, want dry-run preview to succeed", err)
+	}
+
+	if strings.Contains(out.String(), "Closed PR") {
+		t.Fatalf("Discard() output = %q, should not claim the PR was closed when gh auth fails", out.String())
+	}
+	if !strings.Contains(out.String(), "gh not authenticated") {
+		t.Fatalf("Discard() output = %q, want auth failure to be surfaced during dry-run", out.String())
+	}
+}
+
+func TestStartDryRunUsesRealRepoState(t *testing.T) {
+	repoDir := initHotfixRepo(t)
+	// Switch back to main so Start() can branch from a tag.
+	runGit(t, repoDir, "checkout", "main")
+	runGit(t, repoDir, "tag", "v0.1.0")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(true, false)
+	u := ui.New()
+	u.Out = &out
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Start("dry-test", StartOpts{}); err != nil {
+		t.Fatalf("Start() error = %v, want dry-run preview to succeed", err)
+	}
+}
+
+func TestPublishDryRunUsesRealRepoState(t *testing.T) {
+	repoDir := initHotfixRepo(t)
+	installFakeGH(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(true, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Publish(PublishOpts{Title: "test"}); err != nil {
+		t.Fatalf("Publish() error = %v, want dry-run preview to succeed", err)
+	}
+
+	if !strings.Contains(out.String(), "hotfix/test") {
+		t.Fatalf("Publish() output = %q, want branch name resolved from real repo", out.String())
+	}
+}
+
+func TestStartDraftPRPromptCancellationDoesNotCreateBranch(t *testing.T) {
+	repoDir := initHotfixStartRepo(t)
+	installFakeGH(t)
+
+	promptErr := errors.New("prompt cancelled")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.Interactive = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+		RunTitlePrompt: func(string, bool) (ui.InputPromptResult, error) {
+			return ui.InputPromptResult{}, promptErr
+		},
+		RunProgress: ui.RunProgress,
+	}
+
+	err := svc.Start("urgent-fix", StartOpts{DraftPR: true})
+	if !errors.Is(err, promptErr) {
+		t.Fatalf("Start() error = %v, want %v", err, promptErr)
+	}
+
+	branches := strings.Fields(runGit(t, repoDir, "branch", "--format=%(refname:short)"))
+	for _, branch := range branches {
+		if branch == "hotfix/urgent-fix" {
+			t.Fatalf("Start() created %q before the PR prompt completed", branch)
+		}
+	}
+
+	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "main" {
+		t.Fatalf("HEAD = %q, want %q after prompt cancellation", current, "main")
+	}
+}
+
+func initHotfixStartRepo(t *testing.T) string {
+	t.Helper()
+
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "tag", "v0.1.0")
+
+	return repoDir
+}
+
+func installDiscardAuthFailureGH(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  echo "not logged in" >&2
+  exit 1
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }
 
 func initHotfixReleaseRepo(t *testing.T) string {
