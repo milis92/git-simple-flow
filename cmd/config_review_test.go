@@ -88,6 +88,35 @@ func TestConfigEditYesSkipsWizard(t *testing.T) {
 	}
 }
 
+func TestConfigEditYesAllowsNonTTY(t *testing.T) {
+	binary := buildReviewBinary(t)
+	repoDir := initConfigEditRepo(t)
+	configPath := filepath.Join(repoDir, ".sfconfig.yml")
+
+	initial := "main_branch: main\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cmd := exec.Command(binary, "--yes", "config", "edit")
+	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(), "TERM=dumb")
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config edit --yes should not require a TTY when prompts are skipped: %v\n%s", err, out)
+	}
+
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	if string(got) != initial {
+		t.Fatalf("config edit --yes changed config unexpectedly\noutput:\n%s\nwant:\n%s\ngot:\n%s", out, initial, got)
+	}
+}
+
 func buildReviewBinary(t *testing.T) string {
 	t.Helper()
 

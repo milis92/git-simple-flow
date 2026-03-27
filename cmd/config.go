@@ -99,7 +99,7 @@ var configEditCmd = &cobra.Command{
 		u := newUI()
 		path := filepath.Join(repoRoot(), ".sfconfig.yml")
 
-		if !u.Interactive {
+		if !u.Interactive && !u.AutoConfirm {
 			return fmt.Errorf("config edit requires an interactive terminal (remove --no-interactive or edit .sfconfig.yml directly)")
 		}
 

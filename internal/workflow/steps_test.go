@@ -123,6 +123,43 @@ exit 1
 	}
 }
 
+func TestDiscardWorkflowDryRunStillChecksAuthentication(t *testing.T) {
+	repoDir := initWorkflowRepoWithRemoteBranch(t, "feature/test")
+	authMarker := filepath.Join(t.TempDir(), "auth-checked")
+	installWorkflowGH(t, `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  echo checked > "$AUTH_MARKER"
+  echo "not logged in" >&2
+  exit 1
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`, "")
+	t.Setenv("AUTH_MARKER", authMarker)
+
+	r := runner.NewRunner(true, false)
+	var skipped []string
+	wf := DiscardWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "")
+
+	err := wf(context.Background(), ui.StepCallbacks{
+		Start: func() {},
+		Done:  func() {},
+		Fail:  func(string) {},
+		Skip: func(reason string) {
+			skipped = append(skipped, reason)
+		},
+	})
+	if err != nil {
+		t.Fatalf("DiscardWorkflow() error = %v, want nil", err)
+	}
+	if len(skipped) == 0 || skipped[0] != "not authenticated — skipped" {
+		t.Fatalf("DiscardWorkflow() skipped = %v, want first step to report auth skip", skipped)
+	}
+	if _, err := os.Stat(authMarker); err != nil {
+		t.Fatalf("expected gh auth status to run during dry-run, stat err = %v", err)
+	}
+}
+
 func TestFinishWorkflowPropagatesCancellationDuringRemoteDelete(t *testing.T) {
 	repoDir := initWorkflowRepoWithRemoteBranch(t, "feature/test")
 	deleteStarted := filepath.Join(t.TempDir(), "delete-started")
