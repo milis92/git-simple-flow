@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -113,9 +114,9 @@ func LoadFromFile(path string) (*PartialConfig, error) {
 	return &cfg, nil
 }
 
-// SanitizePartial removes invalid enum-like fields from a partial config while
-// preserving the rest of the layer. Returned warnings describe each ignored
-// field so callers can surface them to the user.
+// SanitizePartial trims whitespace from string fields, clears blank-only
+// values, and removes invalid enum-like fields from a partial config.
+// Returned warnings describe each ignored field so callers can surface them.
 func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
 	if cfg == nil {
 		return nil, nil
@@ -123,6 +124,14 @@ func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
 
 	sanitized := *cfg
 	var warnings []error
+
+	// Trim whitespace and clear blank-only values.
+	sanitized.MainBranch = sanitizeStringField(sanitized.MainBranch, "main_branch", &warnings)
+	sanitized.TagPrefix = sanitizeStringField(sanitized.TagPrefix, "tag_prefix", &warnings)
+	sanitized.FeaturePrefix = sanitizeStringField(sanitized.FeaturePrefix, "feature_prefix", &warnings)
+	sanitized.HotfixPrefix = sanitizeStringField(sanitized.HotfixPrefix, "hotfix_prefix", &warnings)
+	sanitized.MergeStrategy = sanitizeStringField(sanitized.MergeStrategy, "merge_strategy", &warnings)
+	sanitized.DefaultReleaseBump = sanitizeStringField(sanitized.DefaultReleaseBump, "default_release_bump", &warnings)
 
 	if sanitized.MergeStrategy != "" && !isValidMergeStrategy(sanitized.MergeStrategy) {
 		warnings = append(warnings, fmt.Errorf(
@@ -141,6 +150,14 @@ func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
 	}
 
 	return &sanitized, warnings
+}
+
+func sanitizeStringField(value, name string, warnings *[]error) string {
+	trimmed := strings.TrimSpace(value)
+	if value != "" && trimmed == "" {
+		*warnings = append(*warnings, fmt.Errorf("blank %s (ignoring)", name))
+	}
+	return trimmed
 }
 
 // Merge applies partial config layers onto a base in order, overriding only

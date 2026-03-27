@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -8,6 +9,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/milis92/git-simple-flow/internal/git"
+	"github.com/milis92/git-simple-flow/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/ui"
 )
 
 func TestConfigEditDryRunDoesNotWriteConfig(t *testing.T) {
@@ -114,6 +119,115 @@ func TestConfigEditYesAllowsNonTTY(t *testing.T) {
 
 	if string(got) != initial {
 		t.Fatalf("config edit --yes changed config unexpectedly\noutput:\n%s\nwant:\n%s\ngot:\n%s", out, initial, got)
+	}
+}
+
+func TestConfigEditYesCreatesUsableConfigWhenRepoFileMissing(t *testing.T) {
+	repoDir := initConfigEditRepo(t)
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(origWD); chdirErr != nil {
+			t.Fatalf("restore cwd: %v", chdirErr)
+		}
+	}()
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	oldDryRun, oldVerbose := dryRun, verbose
+	oldNoInteractive, oldAutoConfirm := noInteractive, autoConfirm
+	dryRun = false
+	verbose = false
+	noInteractive = true
+	autoConfirm = true
+	defer func() {
+		dryRun = oldDryRun
+		verbose = oldVerbose
+		noInteractive = oldNoInteractive
+		autoConfirm = oldAutoConfirm
+	}()
+
+	if err := configEditCmd.RunE(configEditCmd, nil); err != nil {
+		t.Fatalf("configEditCmd.RunE() error = %v", err)
+	}
+
+	configPath := filepath.Join(repoDir, ".sfconfig.yml")
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	if !strings.Contains(string(got), "main_branch:") {
+		t.Fatalf("config edit should create a usable config file when none exists, got:\n%s", got)
+	}
+}
+
+func TestDetectBranchesDryRunUsesRealBranches(t *testing.T) {
+	repoDir := initConfigEditRepo(t)
+	runConfigGit(t, repoDir, "checkout", "-b", "trunk")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(true, false)
+	g := git.New(r, repoDir)
+	u := ui.New()
+	u.Out = &out
+
+	branches := detectBranches(g, u)
+
+	foundTrunk := false
+	for _, branch := range branches {
+		if branch == "trunk" {
+			foundTrunk = true
+			break
+		}
+	}
+	if !foundTrunk {
+		t.Fatalf("detectBranches() = %v, want real repo branch list to include %q during dry-run", branches, "trunk")
+	}
+	if strings.Contains(out.String(), "using defaults") {
+		t.Fatalf("detectBranches() output = %q, should not fall back to defaults during dry-run", out.String())
+	}
+}
+
+func TestConfigCommandShowsValidatedEffectiveConfig(t *testing.T) {
+	binary := buildReviewBinary(t)
+	repoDir := initConfigEditRepo(t)
+
+	configPath := filepath.Join(repoDir, ".sfconfig.yml")
+	if err := os.WriteFile(configPath, []byte("main_branch: \"   \"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cmd := exec.Command(binary, "config")
+	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(), "TERM=dumb")
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config command failed: %v\n%s", err, out)
+	}
+
+	var mainBranchLine string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "main_branch") {
+			mainBranchLine = line
+			break
+		}
+	}
+	if mainBranchLine == "" {
+		t.Fatalf("config output did not contain main_branch line:\n%s", out)
+	}
+
+	fields := strings.Fields(mainBranchLine)
+	if len(fields) < 3 || fields[1] != "main" || fields[2] != defaultConfigSource {
+		t.Fatalf("main_branch line = %q, want validated effective value %q from %s", mainBranchLine, "main", defaultConfigSource)
 	}
 }
 

@@ -142,22 +142,24 @@ var configEditCmd = &cobra.Command{
 			HotfixAutoRelease:  cfg.HotfixAutoRelease,
 		}
 
-		var result ui.InitFormResult
+		var partial config.PartialConfig
 		if u.ShouldPrompt() {
 			r := runner.NewRunner(dryRun, verbose)
 			g := git.New(r, ".")
 			branches := detectBranches(g, u)
 
-			var err error
-			result, err = ui.RunInitForm(defaults, branches)
+			result, err := ui.RunInitForm(defaults, branches)
 			if err != nil {
 				return err
 			}
+			partial = buildRepoConfigForEdit(inherited, repo, result)
+		} else if repo == nil {
+			// No repo config exists — write full effective config so the
+			// file is usable and init won't refuse to create it later.
+			partial = defaults.ToPartialConfig()
 		} else {
-			result = defaults
+			partial = buildRepoConfigForEdit(inherited, repo, defaults)
 		}
-
-		partial := buildRepoConfigForEdit(inherited, repo, result)
 		if dryRun {
 			u.Success("(dry-run) Would update " + path)
 			return nil
@@ -179,10 +181,14 @@ var configCmd = &cobra.Command{
 		u := newUI()
 		repoPath := filepath.Join(repoRoot(), ".sfconfig.yml")
 
-		// Load individual layers to show source
+		// Load individual layers to show source. Warnings are collected and
+		// printed after the config table so they don't interfere with the
+		// machine-parseable output.
+		var configWarnings []string
+
 		globalPath, pathErr := globalConfigPath()
 		if pathErr != nil {
-			u.Muted(fmt.Sprintf("Could not determine home directory: %s", pathErr))
+			configWarnings = append(configWarnings, fmt.Sprintf("Could not determine home directory: %s", pathErr))
 		}
 
 		var global *config.PartialConfig
@@ -191,19 +197,19 @@ var configCmd = &cobra.Command{
 			var loadErr error
 			global, warnings, loadErr = loadPartialConfig(globalPath)
 			if loadErr != nil {
-				u.Muted(fmt.Sprintf("Could not load global config %s: %s", globalPath, loadErr))
+				configWarnings = append(configWarnings, fmt.Sprintf("Could not load global config %s: %s", globalPath, loadErr))
 			}
 			for _, warning := range warnings {
-				u.Muted(fmt.Sprintf("Ignoring invalid global config %s: %s", globalPath, warning))
+				configWarnings = append(configWarnings, fmt.Sprintf("Ignoring invalid global config %s: %s", globalPath, warning))
 			}
 		}
 
 		repo, repoWarnings, repoErr := loadPartialConfig(repoPath)
 		if repoErr != nil {
-			u.Muted(fmt.Sprintf("Could not load repo config %s: %s", repoPath, repoErr))
+			configWarnings = append(configWarnings, fmt.Sprintf("Could not load repo config %s: %s", repoPath, repoErr))
 		}
 		for _, warning := range repoWarnings {
-			u.Muted(fmt.Sprintf("Ignoring invalid repo config %s: %s", repoPath, warning))
+			configWarnings = append(configWarnings, fmt.Sprintf("Ignoring invalid repo config %s: %s", repoPath, warning))
 		}
 
 		cfg := config.Merge(config.Defaults(), global, repo)
@@ -227,6 +233,10 @@ var configCmd = &cobra.Command{
 			func(c *config.PartialConfig) *bool { return c.HotfixAutoRelease })
 		u.Blank()
 
+		for _, w := range configWarnings {
+			u.Muted(w)
+		}
+
 		return nil
 	},
 }
@@ -235,12 +245,27 @@ var configCmd = &cobra.Command{
 // fails (e.g. permission error), it logs a muted warning and falls back to
 // common defaults. A brand-new repo with zero branches also gets defaults.
 func detectBranches(g *git.Git, u *ui.UI) []string {
-	branches, err := g.ListBranches()
+	defaults := []string{"main", "develop", "master"}
+
+	// Use query-mode runner so branch detection works even during --dry-run.
+	branches, err := g.ForQuery().ListBranches()
 	if err != nil {
 		u.Warning(fmt.Sprintf("Could not detect branches: %s (using defaults)", err))
-		branches = []string{"main", "develop", "master"}
-	} else if len(branches) == 0 {
-		branches = []string{"main", "develop", "master"}
+		return defaults
+	}
+	if len(branches) == 0 {
+		return defaults
+	}
+
+	// Merge with common defaults so the branch selector always has useful options.
+	seen := make(map[string]bool, len(branches))
+	for _, b := range branches {
+		seen[b] = true
+	}
+	for _, d := range defaults {
+		if !seen[d] {
+			branches = append(branches, d)
+		}
 	}
 	return branches
 }
