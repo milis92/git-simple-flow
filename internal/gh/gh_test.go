@@ -194,6 +194,72 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
+func TestGetPRChecksPassesRequiredFlag(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	checks, err := client.GetPRChecks()
+	if err != nil {
+		t.Fatalf("GetPRChecks() error = %v", err)
+	}
+	if len(checks) != 1 || checks[0].Bucket != "pass" {
+		t.Fatalf("GetPRChecks() = %v, want one passing check", checks)
+	}
+}
+
+func TestClosePRPassesBranchSelector(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "close" ]; then
+  if [ "$3" != "feature/test" ]; then
+    echo "expected branch selector 'feature/test', got '$3'" >&2
+    exit 1
+  fi
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	if err := client.ClosePR("feature/test", ""); err != nil {
+		t.Fatalf("ClosePR() error = %v", err)
+	}
+}
+
+func TestClosePRPassesBranchSelectorWithComment(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "close" ]; then
+  if [ "$3" != "hotfix/urgent" ]; then
+    echo "expected branch selector 'hotfix/urgent', got '$3'" >&2
+    exit 1
+  fi
+  if [ "$4" != "--comment" ]; then
+    echo "expected --comment flag at \$4, got '$4'" >&2
+    exit 1
+  fi
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	if err := client.ClosePR("hotfix/urgent", "no longer needed"); err != nil {
+		t.Fatalf("ClosePR() error = %v", err)
+	}
+}
+
 func installFakeGH(t *testing.T, script string) {
 	t.Helper()
 

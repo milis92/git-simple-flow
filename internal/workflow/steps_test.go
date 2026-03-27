@@ -19,6 +19,10 @@ func TestFinishWorkflowBlocksTimedOutChecksBeforeMerge(t *testing.T) {
 	mergeMarker := filepath.Join(t.TempDir(), "merged")
 	installWorkflowGH(t, `#!/bin/sh
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
   echo '[{"name":"integration","state":"TIMED_OUT","bucket":"fail"}]'
   exit 0
 fi
@@ -77,6 +81,37 @@ exit 1
 	}
 	if len(failMsgs) != 0 {
 		t.Fatalf("DiscardWorkflow() should not mark skipped PR close as failed, got %v", failMsgs)
+	}
+}
+
+func TestDiscardWorkflowPassesBranchSelectorToClose(t *testing.T) {
+	repoDir := initWorkflowRepoWithRemoteBranch(t, "feature/test")
+	installWorkflowGH(t, `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "close" ]; then
+  if [ "$3" != "feature/test" ]; then
+    echo "expected branch selector 'feature/test', got '$3'" >&2
+    exit 1
+  fi
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`, "")
+
+	r := runner.NewRunner(false, false)
+	wf := DiscardWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "")
+
+	err := wf(context.Background(), ui.StepCallbacks{
+		Start: func() {},
+		Done:  func() {},
+		Fail:  func(string) {},
+		Skip:  func(string) {},
+	})
+	if err != nil {
+		t.Fatalf("DiscardWorkflow() error = %v, want nil", err)
 	}
 }
 

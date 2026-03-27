@@ -269,6 +269,10 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
   echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
   exit 0
 fi
@@ -302,6 +306,10 @@ func installChecksGH(t *testing.T, checksJSON string) {
 		"  exit 0\n" +
 		"fi\n" +
 		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"checks\" ]; then\n" +
+		"  case \"$*\" in\n" +
+		"    *--required*) ;;\n" +
+		"    *) echo \"missing --required flag in: $*\" >&2; exit 1 ;;\n" +
+		"  esac\n" +
 		"  echo '" + checksJSON + "'\n" +
 		"  exit 0\n" +
 		"fi\n" +

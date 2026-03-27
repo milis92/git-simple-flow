@@ -255,6 +255,10 @@ func installChecksGH(t *testing.T, checksJSON string) {
 		"  exit 0\n" +
 		"fi\n" +
 		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"checks\" ]; then\n" +
+		"  case \"$*\" in\n" +
+		"    *--required*) ;;\n" +
+		"    *) echo \"missing --required flag in: $*\" >&2; exit 1 ;;\n" +
+		"  esac\n" +
 		"  echo '" + checksJSON + "'\n" +
 		"  exit 0\n" +
 		"fi\n" +

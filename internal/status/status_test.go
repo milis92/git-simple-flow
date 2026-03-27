@@ -23,6 +23,10 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
   echo '[{"name":"build","state":"SUCCESS","bucket":"pass"},{"name":"docs","state":"NEUTRAL","bucket":"skipping"},{"name":"e2e","state":"TIMED_OUT","bucket":"fail"},{"name":"lint","state":"PENDING","bucket":"pending"}]'
   exit 0
 fi
