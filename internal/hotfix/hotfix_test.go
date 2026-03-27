@@ -229,7 +229,7 @@ func initHotfixRepo(t *testing.T) string {
 	t.Helper()
 
 	repoDir := t.TempDir()
-	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "init", "-b", "main")
 	runGit(t, repoDir, "config", "user.name", "Test User")
 	runGit(t, repoDir, "config", "user.email", "test@example.com")
 

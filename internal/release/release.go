@@ -30,10 +30,15 @@ func (s *Service) Release(scope, message string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckOnBranch(s.Config.MainBranch); err != nil {
+	if err := qGit.CheckOnBranch(s.Config.MainBranch); err != nil {
 		return err
 	}
 
@@ -42,7 +47,7 @@ func (s *Service) Release(scope, message string) error {
 		return err
 	}
 
-	inSync, err := s.Git.IsInSyncWithRemote(s.Config.MainBranch)
+	inSync, err := qGit.IsInSyncWithRemote(s.Config.MainBranch)
 	if err != nil {
 		return err
 	}
@@ -51,7 +56,7 @@ func (s *Service) Release(scope, message string) error {
 	}
 
 	// Get latest tag and compute next version
-	tag, err := s.Git.LatestTag(s.Config.TagPrefix)
+	tag, err := qGit.LatestTag(s.Config.TagPrefix)
 	var next version.Version
 	var currentDisplay string
 

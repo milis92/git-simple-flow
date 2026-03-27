@@ -92,6 +92,47 @@ exit 1
 	}
 }
 
+func TestShowDryRunUsesRealRepoState(t *testing.T) {
+	repoDir := initStatusRepo(t, "feature/test")
+	installStatusGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":123,"title":"Feature PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(true, false)
+	u := ui.New()
+	u.Out = &out
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Show(); err != nil {
+		t.Fatalf("Show() error = %v, want dry-run to succeed using real repo state", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "feature/test") {
+		t.Fatalf("Show() output = %q, want branch name resolved from real repo", output)
+	}
+}
+
 func initStatusRepo(t *testing.T, branch string) string {
 	t.Helper()
 
