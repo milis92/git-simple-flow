@@ -32,7 +32,12 @@ func (s *Service) Show() error {
 		return err
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	// Use query-mode runners for all read-only operations so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+	qGH := s.GH.ForQuery()
+
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}
@@ -59,7 +64,7 @@ func (s *Service) Show() error {
 		if err := gh.CheckGHInstalled(); err != nil {
 			s.UI.Muted(fmt.Sprintf("PR info unavailable: %s", err))
 		} else {
-			if pr, err := s.GH.GetCurrentPR(); err != nil {
+			if pr, err := qGH.GetCurrentPR(); err != nil {
 				if errors.Is(err, gh.ErrNoPR) {
 					s.UI.Muted("No PR for this branch")
 				} else {
@@ -73,27 +78,23 @@ func (s *Service) Show() error {
 				_, _ = fmt.Fprintf(s.UI.Out, "  PR:         #%d%s — %s\n", pr.Number, draft, pr.URL)
 
 				// Show checks
-				if checks, err := s.GH.GetPRChecks(); err != nil {
+				if checks, err := qGH.GetPRChecks(); err != nil {
 					s.UI.Muted(fmt.Sprintf("Could not fetch PR checks: %s", err))
 				} else if len(checks) > 0 {
-					passing, failing, pending := 0, 0, 0
+					failingChecks, pendingChecks := gh.ClassifyChecks(checks)
+					passing := 0
 					for _, c := range checks {
-						switch c.Conclusion {
-						case "success":
+						if gh.CheckAllowsMerge(c) {
 							passing++
-						case "failure":
-							failing++
-						default:
-							pending++
 						}
 					}
 					total := len(checks)
 					status := fmt.Sprintf("%d/%d passing", passing, total)
-					if failing > 0 {
-						status += fmt.Sprintf(", %d failing", failing)
+					if len(failingChecks) > 0 {
+						status += fmt.Sprintf(", %d failing", len(failingChecks))
 					}
-					if pending > 0 {
-						status += fmt.Sprintf(", %d pending", pending)
+					if len(pendingChecks) > 0 {
+						status += fmt.Sprintf(", %d pending", len(pendingChecks))
 					}
 					_, _ = fmt.Fprintf(s.UI.Out, "  Checks:     %s\n", status)
 				}
@@ -101,7 +102,7 @@ func (s *Service) Show() error {
 		}
 
 		// Behind main
-		ahead, behind, err := s.Git.CommitsAheadBehind(branch, s.Config.MainBranch)
+		ahead, behind, err := qGit.CommitsAheadBehind(branch, s.Config.MainBranch)
 		if err != nil {
 			s.UI.Muted(fmt.Sprintf("Could not determine ahead/behind: %s", err))
 		} else {
@@ -116,14 +117,14 @@ func (s *Service) Show() error {
 
 	// Tag/release info
 	s.UI.Blank()
-	tag, err := s.Git.LatestTag(s.Config.TagPrefix)
+	tag, err := qGit.LatestTag(s.Config.TagPrefix)
 	if err != nil {
 		_, _ = fmt.Fprintf(s.UI.Out, "  Latest tag:    (none)\n")
 	} else {
 		_, _ = fmt.Fprintf(s.UI.Out, "  Latest tag:    %s\n", tag)
 
 		if branch == s.Config.MainBranch {
-			ahead, _, err := s.Git.CommitsAheadBehind(s.Config.MainBranch, tag)
+			ahead, _, err := qGit.CommitsAheadBehind(s.Config.MainBranch, tag)
 			if err != nil {
 				s.UI.Muted(fmt.Sprintf("Could not determine commits since %s: %s", tag, err))
 			} else if ahead > 0 {

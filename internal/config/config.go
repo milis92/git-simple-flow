@@ -5,8 +5,11 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -27,14 +30,57 @@ type Config struct {
 // or repo). String fields use zero values to indicate "not set". Bool fields
 // use pointers so that nil (not set) is distinguishable from false.
 type PartialConfig struct {
-	MainBranch         string `yaml:"main_branch"`
-	TagPrefix          string `yaml:"tag_prefix"`
-	FeaturePrefix      string `yaml:"feature_prefix"`
-	HotfixPrefix       string `yaml:"hotfix_prefix"`
-	MergeStrategy      string `yaml:"merge_strategy"`
-	DefaultReleaseBump string `yaml:"default_release_bump"`
-	DraftPROnStart     *bool  `yaml:"draft_pr_on_start"`
-	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release"`
+	MainBranch         string `yaml:"main_branch,omitempty"`
+	TagPrefix          string `yaml:"tag_prefix,omitempty"`
+	FeaturePrefix      string `yaml:"feature_prefix,omitempty"`
+	HotfixPrefix       string `yaml:"hotfix_prefix,omitempty"`
+	MergeStrategy      string `yaml:"merge_strategy,omitempty"`
+	DefaultReleaseBump string `yaml:"default_release_bump,omitempty"`
+	DraftPROnStart     *bool  `yaml:"draft_pr_on_start,omitempty"`
+	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release,omitempty"`
+}
+
+func isValidMergeStrategy(value string) bool {
+	switch value {
+	case "squash", "merge", "rebase":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidReleaseBump(value string) bool {
+	switch value {
+	case "minor", "patch", "major":
+		return true
+	default:
+		return false
+	}
+}
+
+// Validate checks that enum-like fields contain valid values and that
+// required fields are non-empty. It returns an error describing the first
+// invalid field it finds.
+func (c Config) Validate() error {
+	if c.MainBranch == "" {
+		return fmt.Errorf("main_branch must not be empty")
+	}
+	if !isValidMergeStrategy(c.MergeStrategy) {
+		return fmt.Errorf("invalid merge_strategy %q: must be squash, merge, or rebase", c.MergeStrategy)
+	}
+	if !isValidReleaseBump(c.DefaultReleaseBump) {
+		return fmt.Errorf("invalid default_release_bump %q: must be minor, patch, or major", c.DefaultReleaseBump)
+	}
+	if c.FeaturePrefix == "" {
+		return fmt.Errorf("feature_prefix must not be empty")
+	}
+	if c.HotfixPrefix == "" {
+		return fmt.Errorf("hotfix_prefix must not be empty")
+	}
+	if c.TagPrefix == "" {
+		return fmt.Errorf("tag_prefix must not be empty")
+	}
+	return nil
 }
 
 // Defaults returns the built-in default configuration.
@@ -66,6 +112,52 @@ func LoadFromFile(path string) (*PartialConfig, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// SanitizePartial trims whitespace from string fields, clears blank-only
+// values, and removes invalid enum-like fields from a partial config.
+// Returned warnings describe each ignored field so callers can surface them.
+func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	sanitized := *cfg
+	var warnings []error
+
+	// Trim whitespace and clear blank-only values.
+	sanitized.MainBranch = sanitizeStringField(sanitized.MainBranch, "main_branch", &warnings)
+	sanitized.TagPrefix = sanitizeStringField(sanitized.TagPrefix, "tag_prefix", &warnings)
+	sanitized.FeaturePrefix = sanitizeStringField(sanitized.FeaturePrefix, "feature_prefix", &warnings)
+	sanitized.HotfixPrefix = sanitizeStringField(sanitized.HotfixPrefix, "hotfix_prefix", &warnings)
+	sanitized.MergeStrategy = sanitizeStringField(sanitized.MergeStrategy, "merge_strategy", &warnings)
+	sanitized.DefaultReleaseBump = sanitizeStringField(sanitized.DefaultReleaseBump, "default_release_bump", &warnings)
+
+	if sanitized.MergeStrategy != "" && !isValidMergeStrategy(sanitized.MergeStrategy) {
+		warnings = append(warnings, fmt.Errorf(
+			"invalid merge_strategy %q: must be squash, merge, or rebase",
+			sanitized.MergeStrategy,
+		))
+		sanitized.MergeStrategy = ""
+	}
+
+	if sanitized.DefaultReleaseBump != "" && !isValidReleaseBump(sanitized.DefaultReleaseBump) {
+		warnings = append(warnings, fmt.Errorf(
+			"invalid default_release_bump %q: must be minor, patch, or major",
+			sanitized.DefaultReleaseBump,
+		))
+		sanitized.DefaultReleaseBump = ""
+	}
+
+	return &sanitized, warnings
+}
+
+func sanitizeStringField(value, name string, warnings *[]error) string {
+	trimmed := strings.TrimSpace(value)
+	if value != "" && trimmed == "" {
+		*warnings = append(*warnings, fmt.Errorf("blank %s (ignoring)", name))
+	}
+	return trimmed
 }
 
 // Merge applies partial config layers onto a base in order, overriding only
@@ -125,4 +217,144 @@ func ForceWriteDefaults(path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// WriteConfig writes a full Config as YAML to the given path, creating or
+// overwriting the file.
+func WriteConfig(path string, cfg Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// WritePartialConfig writes only the non-zero fields of a PartialConfig as YAML
+// to the given path, creating or overwriting the file.
+func WritePartialConfig(path string, cfg PartialConfig) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// UpdatePartialConfigFile updates known PartialConfig keys in-place while
+// preserving unknown keys and YAML comments in the existing file.
+func UpdatePartialConfigFile(path string, cfg PartialConfig) error {
+	doc, err := loadConfigDocument(path)
+	if err != nil {
+		return err
+	}
+
+	root := doc.Content[0]
+	setStringField(root, "main_branch", cfg.MainBranch)
+	setStringField(root, "tag_prefix", cfg.TagPrefix)
+	setStringField(root, "feature_prefix", cfg.FeaturePrefix)
+	setStringField(root, "hotfix_prefix", cfg.HotfixPrefix)
+	setStringField(root, "merge_strategy", cfg.MergeStrategy)
+	setStringField(root, "default_release_bump", cfg.DefaultReleaseBump)
+	setBoolField(root, "draft_pr_on_start", cfg.DraftPROnStart)
+	setBoolField(root, "hotfix_auto_release", cfg.HotfixAutoRelease)
+
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, out.Bytes(), 0644)
+}
+
+func loadConfigDocument(path string) (*yaml.Node, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return newConfigDocument(), nil
+		}
+		return nil, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return newConfigDocument(), nil
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if doc.Kind == 0 {
+		return newConfigDocument(), nil
+	}
+	if doc.Kind != yaml.DocumentNode {
+		return nil, fmt.Errorf("config file must contain a YAML document")
+	}
+	if len(doc.Content) == 0 {
+		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	if doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("config file must contain a mapping at the top level")
+	}
+
+	return &doc, nil
+}
+
+func newConfigDocument() *yaml.Node {
+	return &yaml.Node{
+		Kind: yaml.DocumentNode,
+		Content: []*yaml.Node{
+			{Kind: yaml.MappingNode, Tag: "!!map"},
+		},
+	}
+}
+
+func setStringField(root *yaml.Node, key, value string) {
+	if value == "" {
+		removeMapEntry(root, key)
+		return
+	}
+	setScalarField(root, key, value, "!!str")
+}
+
+func setBoolField(root *yaml.Node, key string, value *bool) {
+	if value == nil {
+		removeMapEntry(root, key)
+		return
+	}
+	setScalarField(root, key, strconv.FormatBool(*value), "!!bool")
+}
+
+func setScalarField(root *yaml.Node, key, value, tag string) {
+	_, node, idx := mapEntry(root, key)
+	if idx >= 0 {
+		node.Kind = yaml.ScalarNode
+		node.Tag = tag
+		node.Value = value
+		return
+	}
+
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value},
+	)
+}
+
+func removeMapEntry(root *yaml.Node, key string) {
+	_, _, idx := mapEntry(root, key)
+	if idx < 0 {
+		return
+	}
+	root.Content = append(root.Content[:idx], root.Content[idx+2:]...)
+}
+
+func mapEntry(root *yaml.Node, key string) (*yaml.Node, *yaml.Node, int) {
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			return root.Content[i], root.Content[i+1], i
+		}
+	}
+	return nil, nil, -1
 }

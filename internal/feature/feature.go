@@ -4,6 +4,7 @@
 package feature
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -11,15 +12,18 @@ import (
 	"github.com/milis92/git-simple-flow/internal/gh"
 	"github.com/milis92/git-simple-flow/internal/git"
 	"github.com/milis92/git-simple-flow/internal/ui"
+	"github.com/milis92/git-simple-flow/internal/workflow"
 )
 
 // Service orchestrates git, GitHub CLI, UI, and config to execute
 // the feature branch workflow.
 type Service struct {
-	Git    *git.Git
-	GH     *gh.GH
-	UI     *ui.UI
-	Config config.Config
+	Git            *git.Git
+	GH             *gh.GH
+	UI             *ui.UI
+	Config         config.Config
+	RunTitlePrompt func(string, bool) (ui.InputPromptResult, error)
+	RunProgress    func(string, string, []ui.StepDef, func(context.Context, ui.StepCallbacks) error) error
 }
 
 // StartOpts configures feature branch creation.
@@ -51,14 +55,36 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
 	branchName := s.Config.FeaturePrefix + name
+
+	// When a draft PR is requested, resolve the interactive prompt before
+	// mutating any repo state so a user cancellation leaves no partial branch.
+	var draftTitle string
+	if opts.DraftPR || s.Config.DraftPROnStart {
+		if err := gh.CheckGHInstalled(); err != nil {
+			return err
+		}
+		if err := s.GH.ForQuery().CheckAuthenticated(); err != nil {
+			return err
+		}
+		t, _, err := workflow.ResolvePRInput(s.UI, s.RunTitlePrompt, branchName, s.Config.FeaturePrefix, opts.Title, "", false)
+		if err != nil {
+			return err
+		}
+		draftTitle = t
+	}
 
 	if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
 		return err
@@ -75,21 +101,11 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	}
 	s.UI.Success("Created branch " + branchName)
 
-	if opts.DraftPR || s.Config.DraftPROnStart {
-		if err := gh.CheckGHInstalled(); err != nil {
-			return err
-		}
-		if err := s.GH.CheckAuthenticated(); err != nil {
-			return err
-		}
+	if draftTitle != "" {
 		if err := s.Git.Push(branchName); err != nil {
 			return err
 		}
-		title := opts.Title
-		if title == "" {
-			title = gh.HumanizeBranchName(branchName, s.Config.FeaturePrefix)
-		}
-		pr, err := s.GH.CreatePR(s.Config.MainBranch, title, "", true)
+		pr, err := s.GH.CreatePR(s.Config.MainBranch, draftTitle, "", true)
 		if err != nil {
 			return err
 		}
@@ -109,14 +125,20 @@ func (s *Service) Publish(opts PublishOpts) error {
 	if err := gh.CheckGHInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runners for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+	qGH := s.GH.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.GH.CheckAuthenticated(); err != nil {
+	if err := qGH.CheckAuthenticated(); err != nil {
 		return err
 	}
 
-	clean, err := s.Git.IsClean()
+	clean, err := qGit.IsClean()
 	if err != nil {
 		return err
 	}
@@ -124,7 +146,12 @@ func (s *Service) Publish(opts PublishOpts) error {
 		s.UI.Warning("You have uncommitted changes — consider committing or stashing them first")
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
+	if err != nil {
+		return err
+	}
+
+	title, body, err := workflow.ResolvePRInput(s.UI, s.RunTitlePrompt, branch, s.Config.FeaturePrefix, opts.Title, opts.Body, true)
 	if err != nil {
 		return err
 	}
@@ -134,12 +161,7 @@ func (s *Service) Publish(opts PublishOpts) error {
 	}
 	s.UI.Success("Pushed branch " + branch)
 
-	title := opts.Title
-	if title == "" {
-		title = gh.HumanizeBranchName(branch, s.Config.FeaturePrefix)
-	}
-
-	pr, err := s.GH.CreatePR(s.Config.MainBranch, title, opts.Body, false)
+	pr, err := s.GH.CreatePR(s.Config.MainBranch, title, body, false)
 	if err != nil {
 		return err
 	}
@@ -149,10 +171,10 @@ func (s *Service) Publish(opts PublishOpts) error {
 	return nil
 }
 
-// Finish merges the current feature branch's PR and cleans up. It finds the
-// associated PR, verifies CI checks pass (unless Force is set), asks for
-// confirmation, merges using the configured strategy, and deletes the local
-// and remote branches.
+// Finish merges the current feature branch's PR and cleans up. It runs
+// preflight checks, detects the current branch, then routes to
+// finishInteractive (Bubble Tea progress) or finishClassic (print-style)
+// based on whether the UI is in interactive mode.
 func (s *Service) Finish(opts FinishOpts) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
@@ -160,42 +182,96 @@ func (s *Service) Finish(opts FinishOpts) error {
 	if err := gh.CheckGHInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runners for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+	qGH := s.GH.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.GH.CheckAuthenticated(); err != nil {
+	if err := qGH.CheckAuthenticated(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}
 
-	pr, err := s.GH.GetCurrentPR()
+	if s.UI.Interactive {
+		return s.finishInteractive(branch, opts, qGH)
+	}
+	return s.finishClassic(branch, opts, qGH)
+}
+
+// finishInteractive runs the feature finish workflow using the Bubble Tea
+// progress view. It prompts for confirmation before launching the progress view.
+func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) error {
+	pr, err := qGH.GetCurrentPR()
+	if err != nil {
+		return workflow.CurrentPRError(err, "git sf feature publish")
+	}
+	s.UI.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
+
+	ok, err := s.UI.Confirm(fmt.Sprintf("Merge PR #%d — %q?", pr.Number, pr.Title))
 	if err != nil {
 		return err
+	}
+	if !ok {
+		s.UI.Info("Merge cancelled")
+		return nil
+	}
+
+	defs := workflow.FinishStepDefs(s.Config.MainBranch)
+	if opts.Force {
+		defs[0].Label = "Check CI (skipped)"
+	}
+
+	wf := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force)
+	if err := s.RunProgress("git sf feature finish", branch, defs, wf); err != nil {
+		return err
+	}
+
+	s.UI.Result("Feature complete!")
+	return nil
+}
+
+// finishClassic runs the existing print-style feature finish workflow with a
+// confirmation prompt. This is used when the UI is not in interactive mode.
+func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) error {
+	pr, err := qGH.GetCurrentPR()
+	if err != nil {
+		return workflow.CurrentPRError(err, "git sf feature publish")
 	}
 	s.UI.Info(fmt.Sprintf("Found PR #%d — %q", pr.Number, pr.Title))
 
 	if !opts.Force {
-		checks, err := s.GH.GetPRChecks()
+		checks, err := qGH.GetPRChecks()
 		if err != nil {
-			return err
+			return fmt.Errorf("could not fetch PR checks: %w", err)
 		}
-		var failing []string
 		for _, c := range checks {
-			if c.Conclusion == "failure" || c.Conclusion == "cancelled" {
-				failing = append(failing, c.Name)
+			switch {
+			case gh.CheckIsPending(c):
+				s.UI.Warning(c.Name + " — " + c.State)
+			case gh.CheckAllowsMerge(c):
+				s.UI.Success(c.Name + " — " + c.State)
+			default:
+				s.UI.Error(c.Name + " — " + c.State)
 			}
 		}
+		failing, pending := gh.ClassifyChecks(checks)
 		if len(failing) > 0 {
 			return fmt.Errorf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
 		}
-		s.UI.Success("PR checks passed")
+		if len(pending) > 0 {
+			return fmt.Errorf("PR checks still running: %s (use --force to override)", strings.Join(pending, ", "))
+		}
 	}
 
 	ok, err := s.UI.Confirm(fmt.Sprintf("Merge PR #%d — %q?", pr.Number, pr.Title))
@@ -226,7 +302,7 @@ func (s *Service) Finish(opts FinishOpts) error {
 	s.UI.Success("Deleted local branch " + branch)
 
 	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
-		s.UI.Warning("Remote branch already deleted or could not be removed: " + branch)
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted remote branch " + branch)
 	}
@@ -235,21 +311,27 @@ func (s *Service) Finish(opts FinishOpts) error {
 	return nil
 }
 
-// Discard abandons the current feature branch. It confirms with the user,
-// closes the PR if the gh CLI is available (posting reason as a comment if
-// provided), switches to main, and deletes the local and remote branches.
+// Discard abandons the current feature branch. It runs preflight checks,
+// detects the current branch, then routes to discardInteractive (Bubble Tea
+// progress) or discardClassic (print-style) based on whether the UI is in
+// interactive mode.
 func (s *Service) Discard(reason string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckCleanTree(); err != nil {
+	if err := qGit.CheckCleanTree(); err != nil {
 		return err
 	}
 
-	branch, err := s.Git.CurrentBranch()
+	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
 	}
@@ -258,6 +340,37 @@ func (s *Service) Discard(reason string) error {
 		return fmt.Errorf("not on a feature branch (current branch: %s)", branch)
 	}
 
+	if s.UI.Interactive {
+		return s.discardInteractive(branch, reason)
+	}
+	return s.discardClassic(branch, reason)
+}
+
+// discardInteractive runs the feature discard workflow using the Bubble Tea
+// progress view. It prompts for confirmation before launching the progress view.
+func (s *Service) discardInteractive(branch string, reason string) error {
+	ok, err := s.UI.Confirm(fmt.Sprintf("Discard feature branch %q and close its PR?", branch))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		s.UI.Info("Discard cancelled")
+		return nil
+	}
+
+	defs := workflow.DiscardStepDefs(s.Config.MainBranch)
+	wf := workflow.DiscardWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, reason)
+	if err := s.RunProgress("git sf feature discard", branch, defs, wf); err != nil {
+		return err
+	}
+
+	s.UI.Result("Feature discarded.")
+	return nil
+}
+
+// discardClassic runs the existing print-style feature discard workflow with a
+// confirmation prompt. This is used when the UI is not in interactive mode.
+func (s *Service) discardClassic(branch string, reason string) error {
 	ok, err := s.UI.Confirm(fmt.Sprintf("Discard feature branch %q and close its PR?", branch))
 	if err != nil {
 		return err
@@ -268,7 +381,9 @@ func (s *Service) Discard(reason string) error {
 	}
 
 	if ghErr := gh.CheckGHInstalled(); ghErr == nil {
-		if err := s.GH.ClosePR(reason); err != nil {
+		if err := s.GH.ForQuery().CheckAuthenticated(); err != nil {
+			s.UI.Warning("gh not authenticated — skipping PR close")
+		} else if err := s.GH.ClosePR(branch, reason); err != nil {
 			s.UI.Warning("Could not close PR (may not exist): " + err.Error())
 		} else {
 			s.UI.Success("Closed PR")
@@ -288,7 +403,7 @@ func (s *Service) Discard(reason string) error {
 	s.UI.Success("Deleted local branch " + branch)
 
 	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
-		s.UI.Warning("Remote branch already deleted or could not be removed: " + branch)
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted remote branch " + branch)
 	}

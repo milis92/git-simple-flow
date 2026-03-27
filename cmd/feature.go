@@ -24,10 +24,12 @@ var featureStartCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &feature.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		draftPR, _ := cmd.Flags().GetBool("draft-pr")
 		title, _ := cmd.Flags().GetString("title")
@@ -43,10 +45,12 @@ var featurePublishCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &feature.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		title, _ := cmd.Flags().GetString("title")
 		body, _ := cmd.Flags().GetString("body")
@@ -62,10 +66,12 @@ var featureFinishCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &feature.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		force, _ := cmd.Flags().GetBool("force")
 		return svc.Finish(feature.FinishOpts{Force: force})
@@ -80,10 +86,12 @@ var featureDiscardCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &feature.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		reason, _ := cmd.Flags().GetString("reason")
 		return svc.Discard(reason)

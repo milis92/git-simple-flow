@@ -2,6 +2,7 @@
 package gh
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -21,6 +22,17 @@ type GH struct {
 // New creates a GH instance with the given runner.
 func New(r *runner.Runner) *GH {
 	return &GH{runner: r}
+}
+
+// WithContext returns a copy of GH whose commands are canceled when ctx is done.
+func (g *GH) WithContext(ctx context.Context) *GH {
+	return &GH{runner: g.runner.WithContext(ctx)}
+}
+
+// ForQuery returns a copy of GH that always executes commands, even during
+// dry-run mode. Use this for read-only operations like GetCurrentPR.
+func (g *GH) ForQuery() *GH {
+	return &GH{runner: g.runner.ForQuery()}
 }
 
 // CheckGHInstalled verifies that the gh CLI is available in PATH.
@@ -73,10 +85,10 @@ func (g *GH) MergePR(strategy string) error {
 	return err
 }
 
-// ClosePR closes the current branch's PR. If reason is non-empty,
-// it is posted as a comment before closing.
-func (g *GH) ClosePR(reason string) error {
-	args := []string{"pr", "close"}
+// ClosePR closes the PR associated with the given branch. If reason is
+// non-empty, it is posted as a comment before closing.
+func (g *GH) ClosePR(branch, reason string) error {
+	args := []string{"pr", "close", branch}
 	if reason != "" {
 		args = append(args, "--comment", reason)
 	}
@@ -89,7 +101,10 @@ func (g *GH) ClosePR(reason string) error {
 func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	out, err := g.runner.Run("gh", "pr", "view", "--json", "number,title,state,url,isDraft")
 	if err != nil {
-		return nil, ErrNoPR
+		if isNoPRViewError(err) {
+			return nil, fmt.Errorf("%w: %s", ErrNoPR, err)
+		}
+		return nil, err
 	}
 	var pr PRInfo
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
@@ -98,16 +113,52 @@ func (g *GH) GetCurrentPR() (*PRInfo, error) {
 	return &pr, nil
 }
 
-// CheckStatus holds the result of a single CI check on a PR.
-type CheckStatus struct {
-	Name       string
-	Status     string // e.g. "completed", "in_progress"
-	Conclusion string // e.g. "success", "failure"
+func isNoPRViewError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no pull requests found") ||
+		strings.Contains(msg, "no pull request found")
 }
 
-// GetPRChecks fetches CI check results for the current branch's PR.
+// CheckStatus holds the result of a single CI check on a PR.
+// Fields map to the gh pr checks --json schema: name, state, bucket.
+type CheckStatus struct {
+	Name   string `json:"name"`
+	State  string `json:"state"`  // e.g. "SUCCESS", "FAILURE", "PENDING"
+	Bucket string `json:"bucket"` // e.g. "pass", "fail", "pending", "skipping", "cancel"
+}
+
+// CheckIsPending reports whether the check has not reached a terminal state yet.
+func CheckIsPending(check CheckStatus) bool {
+	return check.Bucket == "pending"
+}
+
+// CheckAllowsMerge reports whether a check should be treated as
+// passing for merge gating purposes.
+func CheckAllowsMerge(check CheckStatus) bool {
+	return check.Bucket == "pass" || check.Bucket == "skipping"
+}
+
+// ClassifyChecks splits checks into merge-blocking failures and in-progress checks.
+func ClassifyChecks(checks []CheckStatus) (failing, pending []string) {
+	for _, check := range checks {
+		switch {
+		case CheckIsPending(check):
+			pending = append(pending, check.Name)
+		case !CheckAllowsMerge(check):
+			failing = append(failing, check.Name)
+		}
+	}
+	return failing, pending
+}
+
+// GetPRChecks fetches required CI check results for the current branch's PR.
+// Exit code 8 from gh indicates pending checks — stdout still contains valid JSON.
 func (g *GH) GetPRChecks() ([]CheckStatus, error) {
-	out, err := g.runner.Run("gh", "pr", "checks", "--json", "name,status,conclusion")
+	out, err := g.runner.RunAllowingExitCodes([]int{8}, "gh", "pr", "checks", "--required", "--json", "name,state,bucket")
 	if err != nil {
 		return nil, err
 	}

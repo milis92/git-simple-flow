@@ -17,9 +17,10 @@ var releaseCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &release.Service{
-			Git:    git.New(r, "."),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:              git.New(r, "."),
+			UI:               newUI(),
+			Config:           cfg,
+			RunMessagePrompt: ui.RunMessagePrompt,
 		}
 
 		scope := cfg.DefaultReleaseBump
@@ -27,10 +28,12 @@ var releaseCmd = &cobra.Command{
 			scope = args[0]
 		}
 
-		return svc.Release(scope)
+		message, _ := cmd.Flags().GetString("message")
+		return svc.Release(scope, message)
 	},
 }
 
 func init() {
+	releaseCmd.Flags().StringP("message", "m", "", "tag message (prompted if interactive and not provided)")
 	rootCmd.AddCommand(releaseCmd)
 }

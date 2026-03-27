@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestUIUsesThemeStyles(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:   &buf,
+		In:    strings.NewReader(""),
+		theme: DefaultTheme(),
+	}
+
+	u.Success("ok")
+	output := buf.String()
+	if !strings.Contains(output, "ok") {
+		t.Errorf("Success output missing message, got %q", output)
+	}
+	if !strings.Contains(output, u.theme.IconDone) {
+		t.Errorf("Success output should use theme icon %q, got %q", u.theme.IconDone, output)
+	}
+}
+
 type failingReader struct{}
 
 func (f *failingReader) Read([]byte) (int, error) {
@@ -32,8 +50,10 @@ func TestConfirm(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			u := &UI{
-				Out: &bytes.Buffer{},
-				In:  strings.NewReader(tt.input),
+				Out:         &bytes.Buffer{},
+				In:          strings.NewReader(tt.input),
+				Interactive: true,
+				theme:       DefaultTheme(),
 			}
 			got, err := u.Confirm("Continue?")
 			if (err != nil) != tt.wantErr {
@@ -49,8 +69,10 @@ func TestConfirm(t *testing.T) {
 
 func TestConfirmBrokenReader(t *testing.T) {
 	u := &UI{
-		Out: &bytes.Buffer{},
-		In:  &failingReader{},
+		Out:         &bytes.Buffer{},
+		In:          &failingReader{},
+		Interactive: true,
+		theme:       DefaultTheme(),
 	}
 	got, err := u.Confirm("Continue?")
 	if got != false {
@@ -64,8 +86,10 @@ func TestConfirmBrokenReader(t *testing.T) {
 func TestConfirmPromptOutput(t *testing.T) {
 	var buf bytes.Buffer
 	u := &UI{
-		Out: &buf,
-		In:  strings.NewReader("n\n"),
+		Out:         &buf,
+		In:          strings.NewReader("n\n"),
+		Interactive: true,
+		theme:       DefaultTheme(),
 	}
 	_, _ = u.Confirm("Deploy?")
 	if !strings.Contains(buf.String(), "Deploy?") {
@@ -73,5 +97,109 @@ func TestConfirmPromptOutput(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "[y/N]") {
 		t.Errorf("prompt should contain [y/N], got %q", buf.String())
+	}
+}
+
+func TestConfirmAutoConfirm(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:         &buf,
+		In:          strings.NewReader(""),
+		Interactive: true,
+		AutoConfirm: true,
+		theme:       DefaultTheme(),
+	}
+	got, err := u.Confirm("Deploy?")
+	if err != nil {
+		t.Errorf("Confirm() error = %v, want nil", err)
+	}
+	if !got {
+		t.Error("Confirm() = false, want true when AutoConfirm is set")
+	}
+	if !strings.Contains(buf.String(), "auto-confirmed") {
+		t.Errorf("output should contain 'auto-confirmed', got %q", buf.String())
+	}
+}
+
+func TestConfirmNonInteractiveReadsStdin(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:         &buf,
+		In:          strings.NewReader("y\n"),
+		Interactive: false,
+		theme:       DefaultTheme(),
+	}
+
+	got, err := u.Confirm("Deploy?")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v, want nil", err)
+	}
+	if !got {
+		t.Error("Confirm() = false, want true when stdin confirms")
+	}
+	if !strings.Contains(buf.String(), "Deploy?") {
+		t.Fatalf("Confirm() output = %q, want prompt text", buf.String())
+	}
+	if strings.Contains(buf.String(), "skipped") {
+		t.Fatalf("Confirm() output = %q, should not skip non-interactive confirmations", buf.String())
+	}
+}
+
+func TestConfirmNonInteractiveEOFDeclinesWithoutError(t *testing.T) {
+	var buf bytes.Buffer
+	u := &UI{
+		Out:         &buf,
+		In:          strings.NewReader(""),
+		Interactive: false,
+		theme:       DefaultTheme(),
+	}
+
+	got, err := u.Confirm("Deploy?")
+	if err != nil {
+		t.Fatalf("Confirm() error = %v, want nil on EOF", err)
+	}
+	if got {
+		t.Error("Confirm() = true, want false on EOF")
+	}
+}
+
+func TestShouldPrompt(t *testing.T) {
+	tests := []struct {
+		name string
+		ui   UI
+		want bool
+	}{
+		{
+			name: "interactive prompt allowed",
+			ui: UI{
+				Interactive: true,
+				AutoConfirm: false,
+			},
+			want: true,
+		},
+		{
+			name: "auto confirm disables optional prompts",
+			ui: UI{
+				Interactive: true,
+				AutoConfirm: true,
+			},
+			want: false,
+		},
+		{
+			name: "non interactive disables prompts",
+			ui: UI{
+				Interactive: false,
+				AutoConfirm: false,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ui.ShouldPrompt(); got != tt.want {
+				t.Errorf("ShouldPrompt() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

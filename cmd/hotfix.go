@@ -24,10 +24,12 @@ var hotfixStartCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &hotfix.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		draftPR, _ := cmd.Flags().GetBool("draft-pr")
 		title, _ := cmd.Flags().GetString("title")
@@ -43,10 +45,12 @@ var hotfixPublishCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &hotfix.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		title, _ := cmd.Flags().GetString("title")
 		body, _ := cmd.Flags().GetString("body")
@@ -62,10 +66,12 @@ var hotfixFinishCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &hotfix.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		force, _ := cmd.Flags().GetBool("force")
 		release, _ := cmd.Flags().GetBool("release")
@@ -81,10 +87,12 @@ var hotfixDiscardCmd = &cobra.Command{
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
 		svc := &hotfix.Service{
-			Git:    git.New(r, "."),
-			GH:     gh.New(r),
-			UI:     ui.New(),
-			Config: cfg,
+			Git:            git.New(r, "."),
+			GH:             gh.New(r),
+			UI:             newUI(),
+			Config:         cfg,
+			RunTitlePrompt: ui.RunTitlePrompt,
+			RunProgress:    ui.RunProgress,
 		}
 		reason, _ := cmd.Flags().GetString("reason")
 		return svc.Discard(reason)

@@ -5,7 +5,6 @@ import (
 	"github.com/milis92/git-simple-flow/internal/git"
 	"github.com/milis92/git-simple-flow/internal/runner"
 	"github.com/milis92/git-simple-flow/internal/status"
-	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +18,7 @@ var statusCmd = &cobra.Command{
 		svc := &status.Service{
 			Git:    git.New(r, "."),
 			GH:     gh.New(r),
-			UI:     ui.New(),
+			UI:     newUI(),
 			Config: cfg,
 		}
 		return svc.Show()

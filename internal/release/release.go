@@ -13,24 +13,32 @@ import (
 
 // Service orchestrates git, UI, and config to execute the release workflow.
 type Service struct {
-	Git    *git.Git
-	UI     *ui.UI
-	Config config.Config
+	Git              *git.Git
+	UI               *ui.UI
+	Config           config.Config
+	RunMessagePrompt func(string) (string, error)
 }
 
 // Release creates a new semver tag on main and pushes it to origin. It verifies
 // the repo is on main and in sync with the remote, finds the latest tag, computes
 // the next version based on scope ("major", "minor", or "patch"), shows a
 // confirmation prompt with current and next versions, then creates and pushes the tag.
+// If message is provided (via flag or interactive prompt), an annotated tag is
+// created; otherwise a lightweight tag is used.
 // If no tags exist yet, it starts at v0.1.0.
-func (s *Service) Release(scope string) error {
+func (s *Service) Release(scope, message string) error {
 	if err := git.CheckGitInstalled(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckIsRepo(); err != nil {
+
+	// Use query-mode runner for read-only preflight checks so they execute
+	// even during --dry-run.
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
 		return err
 	}
-	if err := s.Git.CheckOnBranch(s.Config.MainBranch); err != nil {
+	if err := qGit.CheckOnBranch(s.Config.MainBranch); err != nil {
 		return err
 	}
 
@@ -39,7 +47,7 @@ func (s *Service) Release(scope string) error {
 		return err
 	}
 
-	inSync, err := s.Git.IsInSyncWithRemote(s.Config.MainBranch)
+	inSync, err := qGit.IsInSyncWithRemote(s.Config.MainBranch)
 	if err != nil {
 		return err
 	}
@@ -48,7 +56,7 @@ func (s *Service) Release(scope string) error {
 	}
 
 	// Get latest tag and compute next version
-	tag, err := s.Git.LatestTag(s.Config.TagPrefix)
+	tag, err := qGit.LatestTag(s.Config.TagPrefix)
 	var next version.Version
 	var currentDisplay string
 
@@ -87,8 +95,22 @@ func (s *Service) Release(scope string) error {
 
 	s.UI.Blank()
 
-	if err := s.Git.Tag(newTag); err != nil {
-		return err
+	if message == "" && s.UI.ShouldPrompt() {
+		var promptErr error
+		message, promptErr = s.RunMessagePrompt(newTag)
+		if promptErr != nil {
+			return promptErr
+		}
+	}
+
+	if message != "" {
+		if err := s.Git.TagAnnotated(newTag, message); err != nil {
+			return err
+		}
+	} else {
+		if err := s.Git.Tag(newTag); err != nil {
+			return err
+		}
 	}
 	s.UI.Success("Tagged " + newTag)
 

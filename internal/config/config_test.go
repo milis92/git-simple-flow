@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -64,6 +65,62 @@ func TestLoadFromFileMissing(t *testing.T) {
 	}
 	if cfg != nil {
 		t.Error("missing file should return nil config")
+	}
+}
+
+func TestSanitizePartialKeepsValidFieldsAndClearsInvalidEnums(t *testing.T) {
+	draftPR := true
+	cfg := &PartialConfig{
+		MainBranch:         "develop",
+		FeaturePrefix:      "feat/",
+		MergeStrategy:      "fast-forward",
+		DefaultReleaseBump: "tiny",
+		DraftPROnStart:     &draftPR,
+	}
+
+	sanitized, warnings := SanitizePartial(cfg)
+
+	if len(warnings) != 2 {
+		t.Fatalf("warnings count = %d, want 2", len(warnings))
+	}
+	if sanitized.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", sanitized.MainBranch, "develop")
+	}
+	if sanitized.FeaturePrefix != "feat/" {
+		t.Errorf("FeaturePrefix = %q, want %q", sanitized.FeaturePrefix, "feat/")
+	}
+	if sanitized.MergeStrategy != "" {
+		t.Errorf("MergeStrategy = %q, want empty after sanitization", sanitized.MergeStrategy)
+	}
+	if sanitized.DefaultReleaseBump != "" {
+		t.Errorf("DefaultReleaseBump = %q, want empty after sanitization", sanitized.DefaultReleaseBump)
+	}
+	if sanitized.DraftPROnStart == nil || !*sanitized.DraftPROnStart {
+		t.Fatal("DraftPROnStart should be preserved")
+	}
+
+	merged := Merge(Defaults(), sanitized)
+	if err := merged.Validate(); err != nil {
+		t.Fatalf("merged config should remain valid after sanitization, got %v", err)
+	}
+	if merged.MainBranch != "develop" {
+		t.Errorf("merged MainBranch = %q, want %q", merged.MainBranch, "develop")
+	}
+	if merged.MergeStrategy != "squash" {
+		t.Errorf("merged MergeStrategy = %q, want default %q", merged.MergeStrategy, "squash")
+	}
+	if merged.DefaultReleaseBump != "minor" {
+		t.Errorf("merged DefaultReleaseBump = %q, want default %q", merged.DefaultReleaseBump, "minor")
+	}
+}
+
+func TestSanitizePartialNil(t *testing.T) {
+	sanitized, warnings := SanitizePartial(nil)
+	if sanitized != nil {
+		t.Fatalf("sanitized = %#v, want nil", sanitized)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings count = %d, want 0", len(warnings))
 	}
 }
 
@@ -146,5 +203,247 @@ func TestWriteDefaultsExistingFileErrors(t *testing.T) {
 	err := WriteDefaults(path)
 	if err == nil {
 		t.Error("expected error when file already exists")
+	}
+}
+
+func TestWriteConfigRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	cfg := Config{
+		MainBranch:         "develop",
+		TagPrefix:          "release-",
+		FeaturePrefix:      "feat/",
+		HotfixPrefix:       "fix/",
+		MergeStrategy:      "rebase",
+		DefaultReleaseBump: "patch",
+		DraftPROnStart:     true,
+		HotfixAutoRelease:  true,
+	}
+
+	if err := WriteConfig(path, cfg); err != nil {
+		t.Fatalf("WriteConfig() error = %v", err)
+	}
+
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile() error = %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadFromFile() returned nil")
+	}
+
+	if loaded.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", loaded.MainBranch, "develop")
+	}
+	if loaded.FeaturePrefix != "feat/" {
+		t.Errorf("FeaturePrefix = %q, want %q", loaded.FeaturePrefix, "feat/")
+	}
+	if loaded.MergeStrategy != "rebase" {
+		t.Errorf("MergeStrategy = %q, want %q", loaded.MergeStrategy, "rebase")
+	}
+	if loaded.DraftPROnStart == nil || !*loaded.DraftPROnStart {
+		t.Error("DraftPROnStart should be true")
+	}
+	if loaded.HotfixAutoRelease == nil || !*loaded.HotfixAutoRelease {
+		t.Error("HotfixAutoRelease should be true")
+	}
+}
+
+func TestWritePartialConfigOnlyWritesSetFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	draftPR := true
+	partial := PartialConfig{
+		MainBranch:     "develop",
+		FeaturePrefix:  "feat/",
+		HotfixPrefix:   "fix/",
+		TagPrefix:      "rel-",
+		DraftPROnStart: &draftPR,
+	}
+
+	if err := WritePartialConfig(path, partial); err != nil {
+		t.Fatalf("WritePartialConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "main_branch") {
+		t.Error("expected main_branch in output")
+	}
+	if !strings.Contains(content, "feature_prefix") {
+		t.Error("expected feature_prefix in output")
+	}
+	if strings.Contains(content, "merge_strategy") {
+		t.Error("merge_strategy should not be written (not set in partial)")
+	}
+	if strings.Contains(content, "default_release_bump") {
+		t.Error("default_release_bump should not be written (not set in partial)")
+	}
+	if strings.Contains(content, "hotfix_auto_release") {
+		t.Error("hotfix_auto_release should not be written (not set in partial)")
+	}
+}
+
+func TestUpdatePartialConfigFilePreservesUnknownFieldsAndComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initial := strings.Join([]string{
+		"# repo config",
+		"main_branch: main",
+		"# custom extension",
+		"custom_field: keep-me",
+		"merge_strategy: squash",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdatePartialConfigFile(path, PartialConfig{MainBranch: "develop"}); err != nil {
+		t.Fatalf("UpdatePartialConfigFile() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "# repo config") {
+		t.Errorf("expected top-level comment to be preserved, got %q", content)
+	}
+	if !strings.Contains(content, "# custom extension") {
+		t.Errorf("expected unknown-field comment to be preserved, got %q", content)
+	}
+	if !strings.Contains(content, "custom_field: keep-me") {
+		t.Errorf("expected unknown field to be preserved, got %q", content)
+	}
+	if !strings.Contains(content, "main_branch: develop") {
+		t.Errorf("expected known field to be updated, got %q", content)
+	}
+	if strings.Contains(content, "merge_strategy:") {
+		t.Errorf("expected cleared known field to be removed, got %q", content)
+	}
+}
+
+func TestUpdatePartialConfigFileCreatesMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	draftPR := false
+
+	if err := UpdatePartialConfigFile(path, PartialConfig{
+		MainBranch:     "develop",
+		DraftPROnStart: &draftPR,
+	}); err != nil {
+		t.Fatalf("UpdatePartialConfigFile() error = %v", err)
+	}
+
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile() error = %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadFromFile() returned nil")
+	}
+	if loaded.MainBranch != "develop" {
+		t.Errorf("MainBranch = %q, want %q", loaded.MainBranch, "develop")
+	}
+	if loaded.DraftPROnStart == nil || *loaded.DraftPROnStart {
+		t.Fatalf("DraftPROnStart = %v, want explicit false pointer", loaded.DraftPROnStart)
+	}
+}
+
+func TestValidateDefaults(t *testing.T) {
+	cfg := Defaults()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() on defaults should succeed, got %v", err)
+	}
+}
+
+func TestValidateEmptyMainBranch(t *testing.T) {
+	cfg := Defaults()
+	cfg.MainBranch = ""
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with empty MainBranch")
+	}
+	if !strings.Contains(err.Error(), "main_branch must not be empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateInvalidMergeStrategy(t *testing.T) {
+	cfg := Defaults()
+	cfg.MergeStrategy = "fast-forward"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with invalid MergeStrategy")
+	}
+	if !strings.Contains(err.Error(), "invalid merge_strategy") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateValidMergeStrategies(t *testing.T) {
+	for _, strategy := range []string{"squash", "merge", "rebase"} {
+		cfg := Defaults()
+		cfg.MergeStrategy = strategy
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with MergeStrategy=%q should succeed, got %v", strategy, err)
+		}
+	}
+}
+
+func TestValidateInvalidDefaultReleaseBump(t *testing.T) {
+	cfg := Defaults()
+	cfg.DefaultReleaseBump = "tiny"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with invalid DefaultReleaseBump")
+	}
+	if !strings.Contains(err.Error(), "invalid default_release_bump") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateValidDefaultReleaseBumps(t *testing.T) {
+	for _, bump := range []string{"minor", "patch", "major"} {
+		cfg := Defaults()
+		cfg.DefaultReleaseBump = bump
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() with DefaultReleaseBump=%q should succeed, got %v", bump, err)
+		}
+	}
+}
+
+func TestValidateEmptyPrefixes(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Config)
+		want  string
+	}{
+		{"empty FeaturePrefix", func(c *Config) { c.FeaturePrefix = "" }, "feature_prefix must not be empty"},
+		{"empty HotfixPrefix", func(c *Config) { c.HotfixPrefix = "" }, "hotfix_prefix must not be empty"},
+		{"empty TagPrefix", func(c *Config) { c.TagPrefix = "" }, "tag_prefix must not be empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults()
+			tt.setup(&cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("Validate() should fail with %s", tt.name)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %q, want containing %q", err, tt.want)
+			}
+		})
 	}
 }
