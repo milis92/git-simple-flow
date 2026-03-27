@@ -187,7 +187,7 @@ func initReleaseRepo(t *testing.T) string {
 
 	// Create a bare "remote" repo.
 	bareDir := t.TempDir()
-	runGit(t, bareDir, "init", "--bare")
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
 
 	// Create a working repo that clones from the bare remote.
 	parentDir := t.TempDir()

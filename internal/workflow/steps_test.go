@@ -116,7 +116,7 @@ func initWorkflowRepoWithRemoteBranch(t *testing.T, branch string) string {
 	t.Helper()
 
 	bareDir := t.TempDir()
-	runGit(t, bareDir, "init", "--bare")
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
 
 	parentDir := t.TempDir()
 	repoDir := filepath.Join(parentDir, "work")
