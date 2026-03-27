@@ -212,6 +212,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 		)
 	}
 
+	var releasedTag string
 	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force)
 	err = s.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
 		if err := commonFinish(ctx, cb); err != nil {
@@ -261,12 +262,17 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts) error {
 			return err
 		}
 
+		releasedTag = newTag
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	s.UI.Result("Hotfix complete!")
+	if releasedTag != "" {
+		s.UI.Result("Hotfix released " + releasedTag)
+	} else {
+		s.UI.Result("Hotfix complete!")
+	}
 	return nil
 }
 

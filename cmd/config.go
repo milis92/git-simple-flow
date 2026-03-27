@@ -152,6 +152,10 @@ var configEditCmd = &cobra.Command{
 		}
 
 		partial := buildRepoConfigForEdit(inherited, repo, result)
+		if dryRun {
+			u.Success("(dry-run) Would update " + path)
+			return nil
+		}
 		if err := config.UpdatePartialConfigFile(path, partial); err != nil {
 			return err
 		}
