@@ -102,16 +102,22 @@ exit 1
 `, "")
 
 	r := runner.NewRunner(false, false)
+	var skipped []string
 	wf := DiscardWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "")
 
 	err := wf(context.Background(), ui.StepCallbacks{
 		Start: func() {},
 		Done:  func() {},
 		Fail:  func(string) {},
-		Skip:  func(string) {},
+		Skip: func(reason string) {
+			skipped = append(skipped, reason)
+		},
 	})
 	if err != nil {
 		t.Fatalf("DiscardWorkflow() error = %v, want nil", err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("DiscardWorkflow() skipped steps %v, want PR close to succeed (not soft-fail)", skipped)
 	}
 }
 

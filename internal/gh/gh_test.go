@@ -248,6 +248,10 @@ if [ "$1" = "pr" ] && [ "$2" = "close" ]; then
     echo "expected --comment flag at \$4, got '$4'" >&2
     exit 1
   fi
+  if [ "$5" != "no longer needed" ]; then
+    echo "expected comment 'no longer needed', got '$5'" >&2
+    exit 1
+  fi
   exit 0
 fi
 echo "unexpected gh command: $*" >&2
