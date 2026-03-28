@@ -342,6 +342,93 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		return nil
 	}
 
+	doRelease := opts.Release || s.Config.HotfixAutoRelease
+
+	if doRelease {
+		// Squash-Tag-Merge flow
+		qGit := s.Git.ForQuery()
+
+		// Squash
+		base, err := qGit.MergeBase(s.Config.MainBranch, "HEAD")
+		if err != nil {
+			return fmt.Errorf("could not find merge base: %w", err)
+		}
+		if err := s.Git.ResetSoft(base); err != nil {
+			return fmt.Errorf("could not squash commits: %w", err)
+		}
+		squashMsg := "hotfix: " + pr.Title
+		if err := s.Git.CommitWithMessage(squashMsg); err != nil {
+			return fmt.Errorf("could not create squashed commit: %w", err)
+		}
+		s.UI.Success("Squashed commits")
+
+		// Force push
+		if err := s.Git.ForcePush(branch); err != nil {
+			return fmt.Errorf("could not force push: %w", err)
+		}
+		s.UI.Success("Force pushed " + branch)
+
+		// Compute version
+		tag, err := qGit.LatestTag(s.Config.TagPrefix)
+		if err != nil {
+			return err
+		}
+		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
+		if err != nil {
+			return err
+		}
+		next, err := current.Bump("patch")
+		if err != nil {
+			return fmt.Errorf("could not bump version: %w", err)
+		}
+		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
+
+		// Tag
+		if err := s.Git.Tag(newTag); err != nil {
+			return err
+		}
+		s.UI.Success("Tagged " + newTag)
+
+		// Push tag
+		if err := s.Git.PushTag(newTag); err != nil {
+			return err
+		}
+		s.UI.Success("Pushed tag to origin")
+
+		// Merge PR with --merge strategy and custom subject
+		mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
+		if err := s.GH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
+			return err
+		}
+		s.UI.Success("PR merged (merge)")
+
+		// Cleanup
+		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+			return err
+		}
+		s.UI.Success("Switched to " + s.Config.MainBranch)
+
+		if err := s.Git.Pull(); err != nil {
+			return err
+		}
+		s.UI.Success("Pulled latest changes")
+
+		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+			return err
+		}
+		s.UI.Success("Deleted branch " + branch + " (local)")
+
+		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+			s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
+		} else {
+			s.UI.Success("Deleted branch " + branch + " (remote)")
+		}
+
+		s.UI.Result("Hotfix released " + newTag)
+		return nil
+	}
+
+	// Non-release path — unchanged
 	s.UI.Info(fmt.Sprintf("Merging PR #%d — %q", pr.Number, pr.Title))
 
 	if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
@@ -368,36 +455,6 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted branch " + branch + " (remote)")
-	}
-
-	// Auto-release if --release flag or config
-	if opts.Release || s.Config.HotfixAutoRelease {
-		tag, err := s.Git.ForQuery().LatestTag(s.Config.TagPrefix)
-		if err != nil {
-			return err
-		}
-		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
-		if err != nil {
-			return err
-		}
-		next, err := current.Bump("patch")
-		if err != nil {
-			return fmt.Errorf("could not bump version: %w", err)
-		}
-		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
-
-		if err := s.Git.Tag(newTag); err != nil {
-			return err
-		}
-		s.UI.Success("Tagged " + newTag)
-
-		if err := s.Git.PushTag(newTag); err != nil {
-			return err
-		}
-		s.UI.Success("Pushed tag to origin")
-
-		s.UI.Result("Hotfix released " + newTag)
-		return nil
 	}
 
 	s.UI.Result("Done.")
