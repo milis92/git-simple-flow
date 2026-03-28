@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -145,5 +146,67 @@ func TestMergeBase(t *testing.T) {
 	}
 	if base != initSHA {
 		t.Errorf("MergeBase() = %q, want %q", base, initSHA)
+	}
+}
+
+func TestResetSoftAndCommitWithMessage(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	// Record the initial commit SHA
+	initSHA, err := r.Run("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two more commits
+	for i, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(dir+"/"+name, []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Run("git", "-C", dir, "commit", "-m", fmt.Sprintf("commit %d", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Soft reset to the initial commit — changes should be staged
+	if err := g.ResetSoft(initSHA); err != nil {
+		t.Fatal(err)
+	}
+
+	// HEAD should now be the initial commit
+	headSHA, err := r.Run("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headSHA != initSHA {
+		t.Errorf("after ResetSoft, HEAD = %q, want %q", headSHA, initSHA)
+	}
+
+	// Commit the staged changes as a squashed commit
+	if err := g.CommitWithMessage("squashed commit"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify there are exactly 2 commits (init + squashed)
+	logOut, err := r.Run("git", "-C", dir, "rev-list", "--count", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logOut != "2" {
+		t.Errorf("commit count = %q, want %q", logOut, "2")
+	}
+
+	// Verify the squashed commit message
+	msg, err := r.Run("git", "-C", dir, "log", "-1", "--format=%s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "squashed commit" {
+		t.Errorf("commit message = %q, want %q", msg, "squashed commit")
 	}
 }

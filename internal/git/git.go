@@ -196,3 +196,15 @@ func (g *Git) CommitsAheadBehind(branch, base string) (ahead, behind int, err er
 func (g *Git) MergeBase(a, b string) (string, error) {
 	return g.run("merge-base", a, b)
 }
+
+// ResetSoft moves HEAD to the given ref while keeping all changes staged.
+func (g *Git) ResetSoft(ref string) error {
+	_, err := g.run("reset", "--soft", ref)
+	return err
+}
+
+// CommitWithMessage creates a commit with the given message from staged changes.
+func (g *Git) CommitWithMessage(msg string) error {
+	_, err := g.run("commit", "-m", msg)
+	return err
+}
