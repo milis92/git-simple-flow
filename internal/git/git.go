@@ -191,3 +191,8 @@ func (g *Git) CommitsAheadBehind(branch, base string) (ahead, behind int, err er
 	_, err = fmt.Sscanf(out, "%d\t%d", &behind, &ahead)
 	return ahead, behind, err
 }
+
+// MergeBase returns the best common ancestor commit between two refs.
+func (g *Git) MergeBase(a, b string) (string, error) {
+	return g.run("merge-base", a, b)
+}

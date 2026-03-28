@@ -113,3 +113,37 @@ func TestLatestTag(t *testing.T) {
 		t.Errorf("LatestTag() = %q, want %q", tag, "v1.1.0")
 	}
 }
+
+func TestMergeBase(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	// Record the initial commit SHA
+	initSHA, err := r.Run("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a branch and add a commit
+	if err := g.CreateBranch("hotfix/test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/fix.txt", []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "commit", "-m", "hotfix commit"); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := g.MergeBase("main", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != initSHA {
+		t.Errorf("MergeBase() = %q, want %q", base, initSHA)
+	}
+}
