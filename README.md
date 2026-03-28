@@ -111,7 +111,8 @@ git sf feature discard             # close PR, delete branch, switch to main
 enabled in config), it also pushes and opens a draft PR in one step.
 
 `finish` verifies all CI checks pass before merging (override with `--force`), prompts for confirmation, merges using
-your configured strategy (`squash`/`merge`/`rebase`), then deletes the local and remote branches.
+your configured strategy (`squash`/`merge`/`rebase`), then deletes the local and remote branches. For hotfix
+`finish --release`, the merge strategy is always `merge` (to preserve the tag as an ancestor of `main`).
 
 ### Hotfixes
 
@@ -134,8 +135,9 @@ git sf hotfix discard              # close PR, delete branch, switch to main
 | `--release`  | `finish`           | Auto-tag a patch release after merging          |
 | `--reason`   | `discard`          | Leave a comment on the closed PR explaining why |
 
-`--release` on `finish` (or `hotfix_auto_release` in config) automatically bumps the patch version, creates a new tag,
-and pushes it — so `v1.2.3` becomes `v1.2.4` without a separate `release` command.
+`--release` on `finish` (or `hotfix_auto_release` in config) squashes the hotfix branch to a single commit, tags it with
+the next patch version, force-pushes, then merges the PR into `main` via a merge commit. The tag lives on the hotfix
+branch — so `v1.2.3` becomes `v1.2.4` containing only released code plus the fix. No separate `release` command needed.
 
 ### Releases
 
