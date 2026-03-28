@@ -224,81 +224,188 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		return nil
 	}
 
+	doRelease := opts.Release || s.Config.HotfixAutoRelease
+
+	if doRelease {
+		defs := []ui.StepDef{
+			{Label: "Check CI"},
+			{Label: "Squash commits"},
+			{Label: "Force push"},
+			{Label: "Create patch tag"},
+			{Label: "Push tag"},
+			{Label: "Merge PR"},
+			{Label: "Switch to " + s.Config.MainBranch},
+			{Label: "Pull latest"},
+			{Label: "Delete local branch"},
+			{Label: "Delete remote branch"},
+		}
+		if opts.Force {
+			defs[0].Label = "Check CI (skipped)"
+		}
+
+		var releasedTag string
+		err = s.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+			ctxGit := s.Git.WithContext(ctx)
+			ctxGH := s.GH.WithContext(ctx)
+
+			// Check CI
+			cb.Start()
+			if !opts.Force {
+				checks, err := ctxGH.ForQuery().GetPRChecks()
+				if err != nil {
+					cb.Fail(fmt.Sprintf("could not fetch PR checks: %s", err))
+					return fmt.Errorf("could not fetch PR checks: %w", err)
+				}
+				failing, pending := gh.ClassifyChecks(checks)
+				if len(failing) > 0 {
+					errMsg := fmt.Sprintf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
+					cb.Fail(errMsg)
+					return fmt.Errorf("%s", errMsg)
+				}
+				if len(pending) > 0 {
+					errMsg := fmt.Sprintf("PR checks still running: %s (use --force to override)", strings.Join(pending, ", "))
+					cb.Fail(errMsg)
+					return fmt.Errorf("%s", errMsg)
+				}
+			}
+			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Squash commits
+			cb.Start()
+			base, err := ctxGit.ForQuery().MergeBase(s.Config.MainBranch, "HEAD")
+			if err != nil {
+				cb.Fail(err.Error())
+				return fmt.Errorf("could not find merge base: %w", err)
+			}
+			if err := ctxGit.ResetSoft(base); err != nil {
+				cb.Fail(err.Error())
+				return fmt.Errorf("could not squash commits: %w", err)
+			}
+			squashMsg := "hotfix: " + pr.Title
+			if err := ctxGit.CommitWithMessage(squashMsg); err != nil {
+				cb.Fail(err.Error())
+				return fmt.Errorf("could not create squashed commit: %w", err)
+			}
+			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Force push
+			if err := cb.Run(func() error { return ctxGit.ForcePush(branch) }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Create patch tag
+			cb.Start()
+			tag, err := ctxGit.ForQuery().LatestTag(s.Config.TagPrefix)
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			next, err := current.Bump("patch")
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
+			if err := ctxGit.Tag(newTag); err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Push tag
+			if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Merge PR with --merge strategy
+			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
+			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Switch to main
+			if err := cb.Run(func() error { return ctxGit.Checkout(s.Config.MainBranch) }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Pull latest
+			if err := cb.Run(func() error { return ctxGit.Pull() }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Delete local branch
+			if err := cb.Run(func() error { return ctxGit.DeleteLocalBranch(branch) }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Delete remote branch (soft fail)
+			if err := cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) }); err != nil {
+				return err
+			}
+
+			releasedTag = newTag
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		s.UI.Result("Hotfix released " + releasedTag)
+		return nil
+	}
+
+	// Non-release path — unchanged, uses shared FinishWorkflow
 	defs := workflow.FinishStepDefs(s.Config.MainBranch)
 	if opts.Force {
 		defs[0].Label = "Check CI (skipped)"
 	}
 
-	doRelease := opts.Release || s.Config.HotfixAutoRelease
-	if doRelease {
-		defs = append(defs,
-			ui.StepDef{Label: "Create patch tag"},
-			ui.StepDef{Label: "Push tag"},
-		)
-	}
-
-	var releasedTag string
 	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force)
-	err = s.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
-		if err := commonFinish(ctx, cb); err != nil {
-			return err
-		}
-
-		if !doRelease {
-			return nil
-		}
-
-		ctxGit := s.Git.WithContext(ctx)
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// Create patch tag — LatestTag is a read-only query that must
-		// execute even in dry-run mode to resolve the next version.
-		cb.Start()
-		tag, err := ctxGit.ForQuery().LatestTag(s.Config.TagPrefix)
-		if err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
-		if err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		next, err := current.Bump("patch")
-		if err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
-		if err := ctxGit.Tag(newTag); err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		cb.Done()
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// Push tag
-		if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
-			return err
-		}
-
-		releasedTag = newTag
-		return nil
-	})
+	err = s.RunProgress("git sf hotfix finish", branch, defs, commonFinish)
 	if err != nil {
 		return err
 	}
-	if releasedTag != "" {
-		s.UI.Result("Hotfix released " + releasedTag)
-	} else {
-		s.UI.Result("Hotfix complete!")
-	}
+	s.UI.Result("Hotfix complete!")
 	return nil
 }
 

@@ -20,6 +20,14 @@ func TestFinishInteractiveReleasePrintsReleasedTag(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	installFinishReleaseGH(t)
 
+	// Add a commit on the hotfix branch so the squash flow has something to commit.
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "wip: hotfix attempt")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
 	var out bytes.Buffer
 	r := runner.NewRunner(false, false)
 	u := ui.New()
