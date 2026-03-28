@@ -85,6 +85,14 @@ func (g *GH) MergePR(strategy string) error {
 	return err
 }
 
+// MergePRWithMessage merges the current branch's PR using the given strategy
+// and sets the merge commit subject and body.
+func (g *GH) MergePRWithMessage(strategy, subject, body string) error {
+	args := []string{"pr", "merge", "--" + strategy, "--subject", subject, "--body", body}
+	_, err := g.runner.Run("gh", args...)
+	return err
+}
+
 // ClosePR closes the PR associated with the given branch. If reason is
 // non-empty, it is posted as a comment before closing.
 func (g *GH) ClosePR(branch, reason string) error {
