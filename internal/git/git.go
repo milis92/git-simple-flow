@@ -208,3 +208,9 @@ func (g *Git) CommitWithMessage(msg string) error {
 	_, err := g.run("commit", "-m", msg)
 	return err
 }
+
+// ForcePush force-pushes the given branch to origin, overwriting remote history.
+func (g *Git) ForcePush(branch string) error {
+	_, err := g.run("push", "--force", "origin", branch)
+	return err
+}

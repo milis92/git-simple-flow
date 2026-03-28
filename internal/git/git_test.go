@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/milis92/git-simple-flow/internal/runner"
@@ -146,6 +147,78 @@ func TestMergeBase(t *testing.T) {
 	}
 	if base != initSHA {
 		t.Errorf("MergeBase() = %q, want %q", base, initSHA)
+	}
+}
+
+func TestForcePush(t *testing.T) {
+	// Set up a bare remote + cloned working copy
+	bareDir := t.TempDir()
+	r := runner.NewRunner(false, false)
+	if _, err := r.Run("git", "init", "--bare", "-b", "main", bareDir); err != nil {
+		t.Fatal(err)
+	}
+
+	parentDir := t.TempDir()
+	workDir := filepath.Join(parentDir, "work")
+	if _, err := r.Run("git", "clone", bareDir, workDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "config", "user.name", "Test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initial commit + push
+	if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("v1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "commit", "-m", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "push", "-u", "origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a branch, push it, then rewrite history
+	g := New(r, workDir)
+	if err := g.CreateBranch("hotfix/test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "fix.txt"), []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "commit", "-m", "original"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "push", "-u", "origin", "hotfix/test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Amend the commit (rewrite history)
+	if _, err := r.Run("git", "-C", workDir, "commit", "--amend", "-m", "amended"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Force push should succeed
+	if err := g.ForcePush("hotfix/test"); err != nil {
+		t.Fatalf("ForcePush() error = %v", err)
+	}
+
+	// Verify remote has the amended message
+	remoteMsg, err := r.Run("git", "-C", bareDir, "log", "-1", "--format=%s", "hotfix/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remoteMsg != "amended" {
+		t.Errorf("remote commit message = %q, want %q", remoteMsg, "amended")
 	}
 }
 
