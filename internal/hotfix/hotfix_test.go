@@ -388,6 +388,65 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func TestFinishClassicNonReleaseUsesConfiguredStrategy(t *testing.T) {
+	repoDir := initHotfixRepoWithRemoteAndTag(t)
+	orderLog := filepath.Join(t.TempDir(), "order.log")
+	installReleaseGH(t, orderLog)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.Interactive = false
+	u.AutoConfirm = true
+
+	cfg := config.Defaults()
+	cfg.MergeStrategy = "squash"
+
+	svc := &Service{
+		Git:            git.New(r, repoDir),
+		GH:             gh.New(r),
+		UI:             u,
+		Config:         cfg,
+		RunTitlePrompt: ui.RunTitlePrompt,
+		RunProgress:    ui.RunProgress,
+	}
+
+	// Add a commit on the hotfix branch and push
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	err := svc.Finish(FinishOpts{Release: false})
+	if err != nil {
+		t.Fatalf("Finish() error = %v", err)
+	}
+
+	// Verify gh pr merge was called with --squash (not --merge)
+	orderBytes, err := os.ReadFile(orderLog)
+	if err != nil {
+		t.Fatalf("ReadFile(order.log) error = %v", err)
+	}
+	order := string(orderBytes)
+	if !strings.Contains(order, "merge --squash") {
+		t.Errorf("expected --squash strategy in gh commands, got: %s", order)
+	}
+
+	// Verify no new tags were created
+	tags := runGit(t, repoDir, "tag", "-l", "v1.0.1")
+	if tags != "" {
+		t.Errorf("expected no v1.0.1 tag, got %q", tags)
+	}
+
+	// Verify output says "Done." not "Hotfix released"
+	if strings.Contains(out.String(), "released") {
+		t.Errorf("output should not mention release: %q", out.String())
+	}
+}
+
 func TestFinishClassicReleaseSquashesTagsMerges(t *testing.T) {
 	repoDir := initHotfixRepoWithRemoteAndTag(t)
 	orderLog := filepath.Join(t.TempDir(), "order.log")
