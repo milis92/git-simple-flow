@@ -304,26 +304,35 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
-			// Squash commits (base already verified as tag SHA in preflight)
-			cb.Start()
-			if err := ctxGit.ResetSoft(tagSHA); err != nil {
-				cb.Fail(err.Error())
-				return fmt.Errorf("could not squash commits: %w", err)
-			}
-			squashMsg := "hotfix: " + pr.Title
-			if err := ctxGit.CommitWithMessage(squashMsg); err != nil {
-				cb.Fail(err.Error())
-				return fmt.Errorf("could not create squashed commit: %w", err)
-			}
-			cb.Done()
+			// Squash + force push (skip if already squashed from a previous attempt)
+			parentSHA, _ := ctxGit.ForQuery().RevParse("HEAD~1")
+			needsSquash := parentSHA != tagSHA
+			if needsSquash {
+				cb.Start()
+				if err := ctxGit.ResetSoft(tagSHA); err != nil {
+					cb.Fail(err.Error())
+					return fmt.Errorf("could not squash commits: %w", err)
+				}
+				squashMsg := "hotfix: " + pr.Title
+				if err := ctxGit.CommitWithMessage(squashMsg); err != nil {
+					cb.Fail(err.Error())
+					return fmt.Errorf("could not create squashed commit: %w", err)
+				}
+				cb.Done()
 
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 
-			// Force push
-			if err := cb.Run(func() error { return ctxGit.ForcePush(branch) }); err != nil {
-				return err
+				// Force push
+				if err := cb.Run(func() error { return ctxGit.ForcePush(branch) }); err != nil {
+					return err
+				}
+			} else {
+				cb.Start()
+				cb.Done()
+				cb.Start()
+				cb.Done()
 			}
 
 			if ctx.Err() != nil {
@@ -504,21 +513,25 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 			return fmt.Errorf("hotfix branch contains unreleased main commits (was rebased or merged with %s); cannot auto-release", s.Config.MainBranch)
 		}
 
-		// Squash
-		if err := s.Git.ResetSoft(base); err != nil {
-			return fmt.Errorf("could not squash commits: %w", err)
-		}
-		squashMsg := "hotfix: " + pr.Title
-		if err := s.Git.CommitWithMessage(squashMsg); err != nil {
-			return fmt.Errorf("could not create squashed commit: %w", err)
-		}
-		s.UI.Success("Squashed commits")
+		// Squash + force push (skip if already squashed from a previous attempt)
+		parentSHA, _ := qGit.RevParse("HEAD~1")
+		if parentSHA != tagSHA {
+			if err := s.Git.ResetSoft(base); err != nil {
+				return fmt.Errorf("could not squash commits: %w", err)
+			}
+			squashMsg := "hotfix: " + pr.Title
+			if err := s.Git.CommitWithMessage(squashMsg); err != nil {
+				return fmt.Errorf("could not create squashed commit: %w", err)
+			}
+			s.UI.Success("Squashed commits")
 
-		// Force push
-		if err := s.Git.ForcePush(branch); err != nil {
-			return fmt.Errorf("could not force push: %w", err)
+			if err := s.Git.ForcePush(branch); err != nil {
+				return fmt.Errorf("could not force push: %w", err)
+			}
+			s.UI.Success("Force pushed " + branch)
+		} else {
+			s.UI.Muted("Already squashed, skipping")
 		}
-		s.UI.Success("Force pushed " + branch)
 
 		// Compute version
 		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))

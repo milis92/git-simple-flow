@@ -405,6 +405,55 @@ func TestFinishReleaseDoesNotPushTagWhenMergeFails(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseRetryKeepsPostSquashHeadStable(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleasePostSquashChecksPendingGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "first fix")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix-2.txt"), []byte("fix again\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "second fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	t.Setenv("GIT_AUTHOR_DATE", "2026-03-29T10:00:00Z")
+	t.Setenv("GIT_COMMITTER_DATE", "2026-03-29T10:00:00Z")
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("first Finish() error = nil, want merge blocked on post-squash checks")
+	}
+	firstRetryHead := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	t.Setenv("GIT_AUTHOR_DATE", "2026-03-29T10:00:10Z")
+	t.Setenv("GIT_COMMITTER_DATE", "2026-03-29T10:00:10Z")
+	err = svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("second Finish() error = nil, want merge to remain blocked")
+	}
+	secondRetryHead := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	if firstRetryHead != secondRetryHead {
+		t.Fatalf("retry rewrote post-squash head from %s to %s; rerunning finish invalidates the checks it is waiting on", firstRetryHead, secondRetryHead)
+	}
+}
+
 func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 
@@ -678,6 +727,41 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   echo "merge blocked" >&2
+  exit 1
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installFinishReleasePostSquashChecksPendingGH(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":123,"title":"Hotfix PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  echo "required status check \"ci\" is expected on the head SHA before merge" >&2
   exit 1
 fi
 echo "unexpected gh command: $*" >&2
