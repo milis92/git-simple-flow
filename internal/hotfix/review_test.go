@@ -367,6 +367,44 @@ func TestFinishReleaseAcceptsAnnotatedLatestTag(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseDoesNotPushTagWhenMergeFails(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleaseMergeFailureGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want merge failure")
+	}
+
+	// Verify no tag was pushed to remote
+	remoteTags, _ := runner.NewRunner(false, false).Run("git", "-C", bareDir, "tag", "-l", "v0.1.1")
+	if strings.Contains(remoteTags, "v0.1.1") {
+		t.Fatalf("tag v0.1.1 was pushed to remote despite merge failure")
+	}
+}
+
 func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 

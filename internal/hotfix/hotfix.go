@@ -261,9 +261,9 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			{Label: "Check CI"},
 			{Label: "Squash commits"},
 			{Label: "Force push"},
+			{Label: "Merge PR"},
 			{Label: "Create patch tag"},
 			{Label: "Push tag"},
-			{Label: "Merge PR"},
 			{Label: "Switch to " + s.Config.MainBranch},
 			{Label: "Pull latest"},
 			{Label: "Delete local branch"},
@@ -330,19 +330,29 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
-			// Create patch tag
-			cb.Start()
+			// Merge PR with --merge strategy.
+			// Note: the CI check above validates pre-squash SHAs as a sanity check.
+			// gh pr merge enforces branch protection on the actual (post-squash) SHA.
 			current, err := version.Parse(strings.TrimPrefix(latestTag, s.Config.TagPrefix))
 			if err != nil {
-				cb.Fail(err.Error())
 				return err
 			}
 			next, err := current.Bump("patch")
 			if err != nil {
-				cb.Fail(err.Error())
 				return err
 			}
 			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
+			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
+			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Create patch tag (after merge succeeds, so no orphan tag on failure)
+			cb.Start()
 			if err := ctxGit.Tag(newTag); err != nil {
 				cb.Fail(err.Error())
 				return err
@@ -355,16 +365,6 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 
 			// Push tag
 			if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
-				return err
-			}
-
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
-			// Merge PR with --merge strategy
-			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
-			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
 				return err
 			}
 
@@ -531,7 +531,16 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		}
 		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
 
-		// Tag
+		// Merge PR with --merge strategy and custom subject.
+		// Note: the CI check above validates pre-squash SHAs as a sanity check.
+		// gh pr merge enforces branch protection on the actual (post-squash) SHA.
+		mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
+		if err := s.GH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
+			return err
+		}
+		s.UI.Success("PR merged (merge)")
+
+		// Tag (after merge succeeds, so no orphan tag on failure)
 		if err := s.Git.Tag(newTag); err != nil {
 			return err
 		}
@@ -542,13 +551,6 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 			return err
 		}
 		s.UI.Success("Pushed tag to origin")
-
-		// Merge PR with --merge strategy and custom subject
-		mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
-		if err := s.GH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
-			return err
-		}
-		s.UI.Success("PR merged (merge)")
 
 		// Cleanup
 		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
