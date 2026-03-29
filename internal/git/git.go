@@ -215,7 +215,9 @@ func (g *Git) CommitWithMessage(msg string) error {
 }
 
 // ForcePush force-pushes the given branch to origin, overwriting remote history.
+// Uses --force-with-lease to reject the push if the remote ref has changed since
+// the last fetch, preventing silent overwrites of collaborator work.
 func (g *Git) ForcePush(branch string) error {
-	_, err := g.run("push", "--force", "origin", branch)
+	_, err := g.run("push", "--force-with-lease", "origin", branch)
 	return err
 }
