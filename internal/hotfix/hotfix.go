@@ -227,6 +227,36 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 	doRelease := opts.Release || s.Config.HotfixAutoRelease
 
 	if doRelease {
+		// Preflight: ensure local branch is current with remote
+		qGit := s.Git.ForQuery()
+		if err := qGit.Fetch(); err != nil {
+			return fmt.Errorf("could not fetch: %w", err)
+		}
+		inSync, err := qGit.IsInSyncWithRemote(branch)
+		if err != nil {
+			return fmt.Errorf("could not check remote sync: %w", err)
+		}
+		if !inSync {
+			return fmt.Errorf("hotfix branch %s has diverged from remote; pull or reconcile before releasing", branch)
+		}
+
+		// Preflight: ensure hotfix branch has not been contaminated with unreleased main commits
+		latestTag, err := qGit.LatestTag(s.Config.TagPrefix)
+		if err != nil {
+			return err
+		}
+		tagSHA, err := qGit.RevParse(latestTag)
+		if err != nil {
+			return fmt.Errorf("could not resolve tag %s: %w", latestTag, err)
+		}
+		mergeBase, err := qGit.MergeBase(s.Config.MainBranch, "HEAD")
+		if err != nil {
+			return fmt.Errorf("could not find merge base: %w", err)
+		}
+		if mergeBase != tagSHA {
+			return fmt.Errorf("hotfix branch contains unreleased main commits (was rebased or merged with %s); cannot auto-release", s.Config.MainBranch)
+		}
+
 		defs := []ui.StepDef{
 			{Label: "Check CI"},
 			{Label: "Squash commits"},
@@ -274,14 +304,9 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
-			// Squash commits
+			// Squash commits (base already verified as tag SHA in preflight)
 			cb.Start()
-			base, err := ctxGit.ForQuery().MergeBase(s.Config.MainBranch, "HEAD")
-			if err != nil {
-				cb.Fail(err.Error())
-				return fmt.Errorf("could not find merge base: %w", err)
-			}
-			if err := ctxGit.ResetSoft(base); err != nil {
+			if err := ctxGit.ResetSoft(tagSHA); err != nil {
 				cb.Fail(err.Error())
 				return fmt.Errorf("could not squash commits: %w", err)
 			}
@@ -307,12 +332,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 
 			// Create patch tag
 			cb.Start()
-			tag, err := ctxGit.ForQuery().LatestTag(s.Config.TagPrefix)
-			if err != nil {
-				cb.Fail(err.Error())
-				return err
-			}
-			current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
+			current, err := version.Parse(strings.TrimPrefix(latestTag, s.Config.TagPrefix))
 			if err != nil {
 				cb.Fail(err.Error())
 				return err
@@ -455,11 +475,36 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		// Squash-Tag-Merge flow
 		qGit := s.Git.ForQuery()
 
-		// Squash
+		// Safety: ensure local branch is current with remote
+		if err := qGit.Fetch(); err != nil {
+			return fmt.Errorf("could not fetch: %w", err)
+		}
+		inSync, err := qGit.IsInSyncWithRemote(branch)
+		if err != nil {
+			return fmt.Errorf("could not check remote sync: %w", err)
+		}
+		if !inSync {
+			return fmt.Errorf("hotfix branch %s has diverged from remote; pull or reconcile before releasing", branch)
+		}
+
+		// Safety: ensure hotfix branch has not been contaminated with unreleased main commits
+		tag, err := qGit.LatestTag(s.Config.TagPrefix)
+		if err != nil {
+			return err
+		}
+		tagSHA, err := qGit.RevParse(tag)
+		if err != nil {
+			return fmt.Errorf("could not resolve tag %s: %w", tag, err)
+		}
 		base, err := qGit.MergeBase(s.Config.MainBranch, "HEAD")
 		if err != nil {
 			return fmt.Errorf("could not find merge base: %w", err)
 		}
+		if base != tagSHA {
+			return fmt.Errorf("hotfix branch contains unreleased main commits (was rebased or merged with %s); cannot auto-release", s.Config.MainBranch)
+		}
+
+		// Squash
 		if err := s.Git.ResetSoft(base); err != nil {
 			return fmt.Errorf("could not squash commits: %w", err)
 		}
@@ -476,10 +521,6 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		s.UI.Success("Force pushed " + branch)
 
 		// Compute version
-		tag, err := qGit.LatestTag(s.Config.TagPrefix)
-		if err != nil {
-			return err
-		}
 		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
 		if err != nil {
 			return err

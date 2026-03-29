@@ -192,6 +192,11 @@ func (g *Git) CommitsAheadBehind(branch, base string) (ahead, behind int, err er
 	return ahead, behind, err
 }
 
+// RevParse resolves a ref (branch, tag, HEAD, etc.) to its commit SHA.
+func (g *Git) RevParse(ref string) (string, error) {
+	return g.run("rev-parse", ref)
+}
+
 // MergeBase returns the best common ancestor commit between two refs.
 func (g *Git) MergeBase(a, b string) (string, error) {
 	return g.run("merge-base", a, b)

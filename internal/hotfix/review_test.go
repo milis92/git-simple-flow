@@ -155,6 +155,112 @@ func TestFinishClassicReleaseDryRunUsesRealRepoState(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseDoesNotOverwriteRemoteOnlyHotfixChanges(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	installFinishReleaseMergeFailureGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("local change\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "local hotfix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	parentDir := t.TempDir()
+	collaboratorDir := filepath.Join(parentDir, "collaborator")
+	runGit(t, parentDir, "clone", bareDir, "collaborator")
+	runGit(t, collaboratorDir, "config", "user.name", "Collaborator")
+	runGit(t, collaboratorDir, "config", "user.email", "collab@example.com")
+	runGit(t, collaboratorDir, "checkout", "hotfix/test")
+	f, err := os.OpenFile(filepath.Join(collaboratorDir, "fix.txt"), os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("collab change\n"); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, collaboratorDir, "add", ".")
+	runGit(t, collaboratorDir, "commit", "-m", "collab hotfix")
+	runGit(t, collaboratorDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err = svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error due to remote divergence")
+	}
+
+	remoteFix := runGit(t, bareDir, "show", "hotfix/test:fix.txt")
+	if !strings.Contains(remoteFix, "collab change") {
+		t.Fatalf("remote hotfix branch lost collaborator change after release attempt: %q", remoteFix)
+	}
+}
+
+func TestFinishReleaseDoesNotTagUnreleasedMainChanges(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleaseGH(t)
+
+	runGit(t, repoDir, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repoDir, "unreleased.txt"), []byte("unreleased\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "unreleased feature")
+	runGit(t, repoDir, "push", "origin", "main")
+
+	runGit(t, repoDir, "checkout", "hotfix/test")
+	runGit(t, repoDir, "merge", "--no-edit", "main")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("critical fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "hotfix change")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error due to unreleased main commits in hotfix branch")
+	}
+
+	// Verify no tag was created
+	tags := runGit(t, repoDir, "tag", "-l", "v0.1.1")
+	if tags == "v0.1.1" {
+		tree := runGit(t, repoDir, "ls-tree", "-r", "--name-only", "v0.1.1")
+		if strings.Contains(tree, "unreleased.txt") {
+			t.Fatalf("release tag v0.1.1 includes unreleased main content: %q", tree)
+		}
+	}
+}
+
 func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 
@@ -394,6 +500,41 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installFinishReleaseMergeFailureGH(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":123,"title":"Hotfix PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  echo "merge blocked" >&2
+  exit 1
 fi
 echo "unexpected gh command: $*" >&2
 exit 1
