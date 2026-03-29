@@ -245,11 +245,11 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		if err != nil {
 			return err
 		}
-		tagSHA, err := qGit.RevParse(latestTag)
+		tagSHA, err := qGit.RevParse(latestTag + "^{commit}")
 		if err != nil {
 			return fmt.Errorf("could not resolve tag %s: %w", latestTag, err)
 		}
-		mergeBase, err := qGit.MergeBase(s.Config.MainBranch, "HEAD")
+		mergeBase, err := qGit.MergeBase("origin/"+s.Config.MainBranch, "HEAD")
 		if err != nil {
 			return fmt.Errorf("could not find merge base: %w", err)
 		}
@@ -492,11 +492,11 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		if err != nil {
 			return err
 		}
-		tagSHA, err := qGit.RevParse(tag)
+		tagSHA, err := qGit.RevParse(tag + "^{commit}")
 		if err != nil {
 			return fmt.Errorf("could not resolve tag %s: %w", tag, err)
 		}
-		base, err := qGit.MergeBase(s.Config.MainBranch, "HEAD")
+		base, err := qGit.MergeBase("origin/"+s.Config.MainBranch, "HEAD")
 		if err != nil {
 			return fmt.Errorf("could not find merge base: %w", err)
 		}

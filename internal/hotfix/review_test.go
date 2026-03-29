@@ -261,6 +261,112 @@ func TestFinishReleaseDoesNotTagUnreleasedMainChanges(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseRejectsOriginMainContaminationWhenLocalMainIsStale(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	installFinishReleaseGH(t)
+
+	// Push an unreleased commit to origin/main from a second clone,
+	// so the local main stays stale.
+	parentDir := t.TempDir()
+	pusherDir := filepath.Join(parentDir, "pusher")
+	runGit(t, parentDir, "clone", bareDir, "pusher")
+	runGit(t, pusherDir, "config", "user.name", "Pusher")
+	runGit(t, pusherDir, "config", "user.email", "pusher@example.com")
+	if err := os.WriteFile(filepath.Join(pusherDir, "unreleased.txt"), []byte("unreleased\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, pusherDir, "add", ".")
+	runGit(t, pusherDir, "commit", "-m", "unreleased feature")
+	runGit(t, pusherDir, "push", "origin", "main")
+
+	// On the hotfix branch, merge origin/main (fetched), which includes
+	// the unreleased commit that local main doesn't know about.
+	runGit(t, repoDir, "fetch", "origin")
+	runGit(t, repoDir, "merge", "--no-edit", "origin/main")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "hotfix change")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error due to unreleased origin/main commits in hotfix branch")
+	}
+	if !strings.Contains(err.Error(), "unreleased main commits") {
+		t.Fatalf("Finish() error = %q, want 'unreleased main commits' message", err.Error())
+	}
+}
+
+func TestFinishReleaseAcceptsAnnotatedLatestTag(t *testing.T) {
+	// Set up repo with an annotated tag instead of lightweight
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	// Create annotated tag (not lightweight)
+	runGit(t, repoDir, "tag", "-a", "v0.1.0", "-m", "Release v0.1.0")
+	runGit(t, repoDir, "push", "origin", "v0.1.0")
+	runGit(t, repoDir, "checkout", "-b", "hotfix/test")
+
+	// Add a fix commit
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "-u", "origin", "hotfix/test")
+
+	installFinishReleaseGH(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err != nil {
+		t.Fatalf("Finish() error = %v, want success with annotated tag", err)
+	}
+	if !strings.Contains(out.String(), "v0.1.1") {
+		t.Errorf("output = %q, want mention of v0.1.1", out.String())
+	}
+}
+
 func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 
