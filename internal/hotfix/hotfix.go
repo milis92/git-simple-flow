@@ -653,12 +653,23 @@ func (s *Service) releasePreflight(branch string, qGit *git.Git, qGH *gh.GH) (*r
 	}
 
 	// Ensure hotfix branch has not been contaminated with unreleased main commits.
+	// First check: merge-base must equal the base tag (catches merges/rebases).
 	mergeBase, err := qGit.MergeBase("origin/"+s.Config.MainBranch, "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("could not find merge base: %w", err)
 	}
 	if mergeBase != tagSHA {
 		return nil, fmt.Errorf("hotfix branch contains unreleased main commits (was rebased or merged with %s); cannot auto-release", s.Config.MainBranch)
+	}
+
+	// Second check: no cherry-picked commits from unreleased main (catches
+	// cherry-picks which don't change the merge-base).
+	hasCherries, err := qGit.HasCherryPickedCommits("origin/"+s.Config.MainBranch, "HEAD", tagSHA)
+	if err != nil {
+		return nil, fmt.Errorf("could not check for cherry-picked commits: %w", err)
+	}
+	if hasCherries {
+		return nil, fmt.Errorf("hotfix branch contains cherry-picked commits from %s; cannot auto-release", s.Config.MainBranch)
 	}
 
 	return &releasePreflightResult{latestTag: latestTag, tagSHA: tagSHA}, nil

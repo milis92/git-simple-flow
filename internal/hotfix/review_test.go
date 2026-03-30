@@ -261,6 +261,59 @@ func TestFinishReleaseDoesNotTagUnreleasedMainChanges(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseRejectsCherryPickedMainCommits(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	installFinishReleaseGH(t)
+
+	// Push an unreleased commit to origin/main.
+	pusherParent := t.TempDir()
+	pusherDir := filepath.Join(pusherParent, "pusher")
+	runGit(t, pusherParent, "clone", bareDir, "pusher")
+	runGit(t, pusherDir, "config", "user.name", "Pusher")
+	runGit(t, pusherDir, "config", "user.email", "pusher@example.com")
+	if err := os.WriteFile(filepath.Join(pusherDir, "unreleased.txt"), []byte("unreleased\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, pusherDir, "add", ".")
+	runGit(t, pusherDir, "commit", "-m", "unreleased feature")
+	runGit(t, pusherDir, "push", "origin", "main")
+
+	// Cherry-pick that commit onto the hotfix branch.
+	runGit(t, repoDir, "fetch", "origin")
+	cherryCommit := runGit(t, repoDir, "rev-parse", "origin/main")
+	runGit(t, repoDir, "cherry-pick", cherryCommit)
+
+	// Add a legitimate hotfix commit too.
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "hotfix change")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error due to cherry-picked unreleased main commit")
+	}
+	if !strings.Contains(err.Error(), "cherry-picked") {
+		t.Fatalf("Finish() error = %q, want cherry-pick detection message", err.Error())
+	}
+}
+
 func TestFinishReleaseRejectsOriginMainContaminationWhenLocalMainIsStale(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")

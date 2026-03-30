@@ -253,6 +253,26 @@ func (g *Git) CommitCount(base, head string) (int, error) {
 	return n, nil
 }
 
+// HasCherryPickedCommits checks whether any commits in base..head have
+// equivalent patches (by git patch-id) on the upstream branch. Returns true
+// if cherry-picked commits are detected. Uses "git cherry" which compares
+// symmetric patch-ids: a "-" prefix means the commit exists on upstream.
+func (g *Git) HasCherryPickedCommits(upstream, head, base string) (bool, error) {
+	out, err := g.run("cherry", upstream, head, base)
+	if err != nil {
+		return false, err
+	}
+	if out == "" {
+		return false, nil
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "- ") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ResetSoft moves HEAD to the given ref while keeping all changes staged.
 func (g *Git) ResetSoft(ref string) error {
 	_, err := g.run("reset", "--soft", ref)
