@@ -180,6 +180,50 @@ func TestReleaseNonInteractiveDeclineAbortsWithoutTag(t *testing.T) {
 	}
 }
 
+// TestReleaseIgnoresOffMainHotfixTag verifies that Release() bumps from the
+// latest tag reachable from main, not a globally-latest off-main hotfix tag.
+func TestReleaseIgnoresOffMainHotfixTag(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	// Create a hotfix tag v0.2.0 on a side branch (not reachable from main).
+	runGit(t, repoDir, "checkout", "-b", "hotfix/side")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "hotfix")
+	runGit(t, repoDir, "tag", "v0.2.0")
+	runGit(t, repoDir, "push", "origin", "v0.2.0")
+
+	// Switch back to main and run release (patch bump).
+	runGit(t, repoDir, "checkout", "main")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           config.Defaults(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.Release("patch", ""); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+
+	// Should bump from v0.1.0 (on main) → v0.1.1, NOT from v0.2.0 → v0.2.1.
+	if strings.Contains(out.String(), "v0.2.1") {
+		t.Fatalf("Release() bumped from off-main tag v0.2.0, output = %q", out.String())
+	}
+	if !strings.Contains(out.String(), "v0.1.1") {
+		t.Fatalf("Release() output = %q, want v0.1.1 (bumped from v0.1.0 on main)", out.String())
+	}
+}
+
 // initReleaseRepo creates a temp git repo with a bare remote, an initial commit
 // on main, and an existing v0.1.0 tag, suitable for testing Release().
 func initReleaseRepo(t *testing.T) string {

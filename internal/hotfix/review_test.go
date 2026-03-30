@@ -487,6 +487,53 @@ func TestFinishReleaseFailsWhenPRMergeVerificationBreaks(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseDoesNotPublishTagWhenPRQueued(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	installFinishReleaseQueuedThenMergedGH(t) // merge succeeds but PR stays OPEN
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("Finish() error = %v", err)
+	}
+
+	// Tag must NOT be pushed to remote while PR is still queued.
+	remoteTags, _ := runner.NewRunner(false, false).Run("git", "-C", bareDir, "tag", "-l", "v0.1.1")
+	if strings.Contains(remoteTags, "v0.1.1") {
+		t.Fatalf("tag v0.1.1 was pushed to remote while PR is still queued — tag should only be published after merge is confirmed")
+	}
+
+	// Local tag should also not exist.
+	localTags := runGit(t, repoDir, "tag", "-l", "v0.1.1")
+	if localTags == "v0.1.1" {
+		t.Fatalf("local tag v0.1.1 was created while PR is still queued")
+	}
+
+	// Branch should be kept for retry.
+	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "hotfix/test" {
+		t.Fatalf("HEAD = %q, want hotfix branch kept for later retry", current)
+	}
+}
+
 func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
@@ -511,14 +558,16 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 		Config: config.Defaults(),
 	}
 
+	// First run: PR is queued — no tag published, branch kept.
 	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
-		t.Fatalf("first Finish() error = %v, want queued release to publish tag and keep branch", err)
+		t.Fatalf("first Finish() error = %v, want queued merge to succeed without tag", err)
 	}
 
 	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "hotfix/test" {
 		t.Fatalf("after queued release, HEAD = %q, want hotfix branch kept for later cleanup", current)
 	}
 
+	// Simulate the merge queue completing: merge hotfix into main on the remote.
 	parentDir := t.TempDir()
 	mergerDir := filepath.Join(parentDir, "merger")
 	runGit(t, parentDir, "clone", bareDir, "merger")
@@ -528,10 +577,12 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge queued hotfix")
 	runGit(t, mergerDir, "push", "origin", "main")
 
+	// Mark the PR as merged so the gh stub reports MERGED state.
 	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
+	// Second run: detects PR is merged, creates tag, cleans up.
 	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
 		t.Fatalf("second Finish() error = %v, want cleanup to succeed after queued PR becomes merged", err)
 	}
@@ -539,11 +590,79 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "main" {
 		t.Fatalf("after retry cleanup, HEAD = %q, want %q", current, "main")
 	}
+
+	// Tag should exist now after the retry.
+	tags := runGit(t, repoDir, "tag", "-l", "v0.1.1")
+	if tags != "v0.1.1" {
+		t.Fatalf("expected tag v0.1.1 to be created on retry, got %q", tags)
+	}
+
 	branches := strings.Fields(runGit(t, repoDir, "branch", "--format=%(refname:short)"))
 	for _, branch := range branches {
 		if branch == "hotfix/test" {
 			t.Fatalf("expected hotfix branch to be deleted on retry cleanup, branches=%v", branches)
 		}
+	}
+}
+
+func TestFinishReleasePreflightIgnoresOffMainTags(t *testing.T) {
+	// Set up repo: main has v0.1.0, an unrelated hotfix published v0.1.1 off-main.
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.1.0")
+	runGit(t, repoDir, "push", "origin", "v0.1.0")
+
+	// Create off-main hotfix branch with v0.2.0 tag (higher than anything on main).
+	runGit(t, repoDir, "checkout", "-b", "hotfix/other")
+	if err := os.WriteFile(filepath.Join(repoDir, "other.txt"), []byte("other\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "other hotfix")
+	runGit(t, repoDir, "tag", "v0.2.0")
+	runGit(t, repoDir, "push", "origin", "v0.2.0")
+
+	// Create the actual hotfix branch from v0.1.0.
+	runGit(t, repoDir, "checkout", "v0.1.0")
+	runGit(t, repoDir, "checkout", "-b", "hotfix/test")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "-u", "origin", "hotfix/test")
+
+	installFinishReleaseGH(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err != nil {
+		t.Fatalf("Finish() error = %v, want success despite off-main v0.2.0 tag", err)
 	}
 }
 

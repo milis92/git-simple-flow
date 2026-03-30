@@ -142,6 +142,38 @@ func (g *Git) LatestTag(prefix string) (string, error) {
 	return tagMap[latest.String()], nil
 }
 
+// LatestTagOnBranch finds the highest semver tag matching the given prefix
+// that is reachable from ref (i.e. an ancestor of ref). This prevents
+// off-branch tags (e.g. an unmerged hotfix tag) from being picked up.
+func (g *Git) LatestTagOnBranch(prefix, ref string) (string, error) {
+	out, err := g.run("tag", "-l", prefix+"*", "--merged", ref)
+	if err != nil {
+		return "", err
+	}
+	if out == "" {
+		return "", fmt.Errorf("no tags found matching %s* reachable from %s", prefix, ref)
+	}
+	tags := strings.Split(out, "\n")
+	var versions []version.Version
+	tagMap := make(map[string]string)
+	for _, tag := range tags {
+		v, err := version.Parse(strings.TrimPrefix(tag, prefix))
+		if err != nil {
+			continue
+		}
+		versions = append(versions, v)
+		tagMap[v.String()] = tag
+	}
+	if len(versions) == 0 {
+		return "", fmt.Errorf("no valid semver tags found matching %s* reachable from %s", prefix, ref)
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].LessThan(versions[j])
+	})
+	latest := versions[len(versions)-1]
+	return tagMap[latest.String()], nil
+}
+
 // Fetch downloads objects and refs from origin.
 func (g *Git) Fetch() error {
 	_, err := g.run("fetch", "origin")

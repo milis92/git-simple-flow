@@ -453,6 +453,63 @@ func TestFinishClassicNonReleaseUsesConfiguredStrategy(t *testing.T) {
 	}
 }
 
+func TestStartIgnoresOffMainHotfixTag(t *testing.T) {
+	// Set up a repo with a remote, v1.0.0 on main, and an off-main v1.0.1.
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v1.0.0")
+	runGit(t, repoDir, "push", "origin", "v1.0.0")
+
+	// Create off-main hotfix tag v1.0.1.
+	runGit(t, repoDir, "checkout", "-b", "hotfix/old")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("old fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "old hotfix")
+	runGit(t, repoDir, "tag", "v1.0.1")
+	runGit(t, repoDir, "push", "origin", "v1.0.1")
+
+	// Switch to main for hotfix start.
+	runGit(t, repoDir, "checkout", "main")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Start("new-fix", StartOpts{}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// The new hotfix should be based on v1.0.0 (on main), not v1.0.1 (off-main).
+	// v1.0.0 is the init commit; the parent of the new branch should be that commit.
+	v100SHA := runGit(t, repoDir, "rev-parse", "v1.0.0^{commit}")
+	headParent := runGit(t, repoDir, "rev-parse", "HEAD")
+	if headParent != v100SHA {
+		t.Fatalf("hotfix branched from %s, want %s (v1.0.0, not v1.0.1)", headParent, v100SHA)
+	}
+}
+
 func TestFinishClassicReleaseSquashesTagsMerges(t *testing.T) {
 	repoDir := initHotfixRepoWithRemoteAndTag(t)
 	orderLog := filepath.Join(t.TempDir(), "order.log")

@@ -116,6 +116,60 @@ func TestLatestTag(t *testing.T) {
 	}
 }
 
+func TestLatestTagOnBranch(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	// Tag v1.0.0 on the initial commit (main).
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a side branch with its own tag v1.0.1.
+	if err := g.CreateBranch("hotfix/side"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/fix.txt", []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "commit", "-m", "hotfix"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch back to main. Global LatestTag sees v1.0.1, but
+	// LatestTagOnBranch scoped to main should see only v1.0.0.
+	defaultBranch, _ := r.Run("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err := g.Checkout("main"); err != nil {
+		// Fallback for repos where default branch is "master"
+		if err := g.Checkout(defaultBranch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	globalTag, err := g.LatestTag("v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if globalTag != "v1.0.1" {
+		t.Errorf("LatestTag() = %q, want %q", globalTag, "v1.0.1")
+	}
+
+	scopedTag, err := g.LatestTagOnBranch("v", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scopedTag != "v1.0.0" {
+		t.Errorf("LatestTagOnBranch(HEAD) = %q, want %q (should not see off-branch v1.0.1)", scopedTag, "v1.0.0")
+	}
+}
+
 func TestMergeBase(t *testing.T) {
 	dir := setupTestRepo(t)
 	r := runner.NewRunner(false, false)
