@@ -627,7 +627,7 @@ func (s *Service) releasePreflight(branch string, qGit *git.Git, qGH *gh.GH) (*r
 	// may have been auto-deleted by GitHub after merge, making the sync
 	// check fail on a missing remote ref.
 	if verifyErr := qGH.VerifyPRMerged(); verifyErr == nil {
-		if err := s.retryTagAndCleanup(branch, qGit); err != nil {
+		if err := s.retryTagAndCleanup(branch, qGit, qGH); err != nil {
 			return nil, err
 		}
 		return nil, nil // retry handled
@@ -731,16 +731,22 @@ func (s *Service) cleanupAfterMerge(branch, tag string) error {
 }
 
 // retryTagAndCleanup is the retry path for a previous run whose merge was
-// queued and has since completed. It derives the base tag from the hotfix
-// branch's own parent commit (HEAD^) rather than from main's current state,
-// so that a new release landing on main between runs doesn't cause a wrong
-// version bump.
-func (s *Service) retryTagAndCleanup(branch string, qGit *git.Git) error {
-	// The squashed hotfix commit sits directly on top of the base tag commit,
-	// so HEAD^ is the base tag commit. Using LatestTagOnBranch scoped to HEAD^
-	// finds the tag the hotfix was originally branched from, regardless of
-	// what has since landed on main.
-	baseTag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "HEAD^")
+// queued and has since completed. It anchors everything to the PR's head ref
+// OID — the immutable SHA that GitHub recorded at merge time — so it is
+// independent of local HEAD (which may have moved) and local tags (which may
+// exist without having been pushed).
+func (s *Service) retryTagAndCleanup(branch string, qGit *git.Git, qGH *gh.GH) error {
+	// Get the commit that was actually merged — not local HEAD, which may
+	// have moved if someone pushed more commits after the merge.
+	prHeadSHA, err := qGH.GetPRHeadSHA()
+	if err != nil {
+		return fmt.Errorf("could not determine merged commit: %w", err)
+	}
+
+	// Derive the base tag from the parent of the merged commit.
+	// The squashed hotfix sits directly on top of the base tag, so
+	// prHeadSHA^ is the base tag commit regardless of main's current state.
+	baseTag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, prHeadSHA+"^")
 	if err != nil {
 		return fmt.Errorf("could not determine hotfix base tag: %w", err)
 	}
@@ -749,16 +755,18 @@ func (s *Service) retryTagAndCleanup(branch string, qGit *git.Git) error {
 		return err
 	}
 
-	// Create and push tag if not already present (idempotent).
-	if _, tagErr := qGit.RevParse(newTag); tagErr != nil {
-		if err := s.Git.Tag(newTag); err != nil {
+	// Always create and push the tag at the merged commit.
+	// A local tag alone is not proof the remote has it (a previous retry
+	// may have died between Tag and PushTag), so we always push.
+	if _, tagErr := qGit.RevParse(newTag + "^{commit}"); tagErr != nil {
+		if err := s.Git.TagAt(newTag, prHeadSHA); err != nil {
 			return err
 		}
-		if err := s.Git.PushTag(newTag); err != nil {
-			return err
-		}
-		s.UI.Success("Tagged and pushed " + newTag)
 	}
+	if err := s.Git.PushTag(newTag); err != nil {
+		return err
+	}
+	s.UI.Success("Tagged and pushed " + newTag)
 
 	return s.cleanupAfterMerge(branch, newTag)
 }

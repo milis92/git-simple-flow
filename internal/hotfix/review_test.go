@@ -537,7 +537,7 @@ func TestFinishReleaseDoesNotPublishTagWhenPRQueued(t *testing.T) {
 func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
-	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
 
 	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -563,6 +563,12 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 		t.Fatalf("first Finish() error = %v, want queued merge to succeed without tag", err)
 	}
 
+	// Record the squashed HEAD — this is the commit the retry must tag.
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "hotfix/test" {
 		t.Fatalf("after queued release, HEAD = %q, want hotfix branch kept for later cleanup", current)
 	}
@@ -578,7 +584,7 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	runGit(t, mergerDir, "push", "origin", "main")
 
 	// Mark the PR as merged so the gh stub reports MERGED state.
-	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -668,7 +674,7 @@ func TestStartFetchesBeforeTagLookup(t *testing.T) {
 func TestFinishReleaseRetryAfterBranchAutoDeleted(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
-	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
 
 	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -695,6 +701,11 @@ func TestFinishReleaseRetryAfterBranchAutoDeleted(t *testing.T) {
 		t.Fatalf("first Finish() error = %v", err)
 	}
 
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	// Simulate: merge queue completes AND GitHub auto-deletes the branch.
 	mergerDir := filepath.Join(t.TempDir(), "merger")
 	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
@@ -705,7 +716,7 @@ func TestFinishReleaseRetryAfterBranchAutoDeleted(t *testing.T) {
 	runGit(t, mergerDir, "push", "origin", "main")
 	runGit(t, mergerDir, "push", "origin", "--delete", "hotfix/test")
 
-	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -723,7 +734,7 @@ func TestFinishReleaseRetryAfterBranchAutoDeleted(t *testing.T) {
 func TestFinishReleaseRetryUsesCorrectVersionAfterNewRelease(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
-	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
 
 	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -748,6 +759,11 @@ func TestFinishReleaseRetryUsesCorrectVersionAfterNewRelease(t *testing.T) {
 	// First run: PR is queued.
 	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
 		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
 	}
 
 	// Between runs, someone releases v0.2.0 on main.
@@ -768,7 +784,7 @@ func TestFinishReleaseRetryUsesCorrectVersionAfterNewRelease(t *testing.T) {
 	runGit(t, releaserDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
 	runGit(t, releaserDir, "push", "origin", "main")
 
-	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -782,6 +798,81 @@ func TestFinishReleaseRetryUsesCorrectVersionAfterNewRelease(t *testing.T) {
 	}
 	if tags := runGit(t, repoDir, "tag", "-l", "v0.1.1"); tags != "v0.1.1" {
 		t.Fatalf("expected tag v0.1.1, got %q", tags)
+	}
+}
+
+func TestFinishReleaseRetryTagsMergedCommitNotLocalHEAD(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	// First run: PR is queued.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	// Record the squashed SHA — this is the commit that was merged.
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Someone pushes an extra commit AFTER the merge — local HEAD moves.
+	if err := os.WriteFile(filepath.Join(repoDir, "extra.txt"), []byte("extra\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "extra commit after merge")
+
+	extraSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if extraSHA == squashedSHA {
+		t.Fatal("test setup failed: extra commit should move HEAD")
+	}
+
+	// Simulate merge queue completion.
+	mergerDir := filepath.Join(t.TempDir(), "merger")
+	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry: tag should point to the merged commit (squashedSHA), not local HEAD (extraSHA).
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v", err)
+	}
+
+	tagSHA := runGit(t, repoDir, "rev-parse", "v0.1.1^{commit}")
+	if tagSHA != squashedSHA {
+		t.Fatalf("v0.1.1 points to %s, want %s (the merged commit, not local HEAD)", tagSHA, squashedSHA)
+	}
+	if tagSHA == extraSHA {
+		t.Fatalf("v0.1.1 points to the extra commit — retry tagged local HEAD instead of the merged commit")
 	}
 }
 
@@ -1210,11 +1301,24 @@ exit 1
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }
 
+// queuedMergedGHFiles holds file paths returned by installFinishReleaseQueuedThenMergedGH.
+type queuedMergedGHFiles struct {
+	mergedMarker string
+	headSHAFile  string
+}
+
 func installFinishReleaseQueuedThenMergedGH(t *testing.T) string {
+	t.Helper()
+	f := installFinishReleaseQueuedThenMergedGHWithHead(t)
+	return f.mergedMarker
+}
+
+func installFinishReleaseQueuedThenMergedGHWithHead(t *testing.T) queuedMergedGHFiles {
 	t.Helper()
 
 	binDir := t.TempDir()
 	mergedMarker := filepath.Join(binDir, "merged")
+	headSHAFile := filepath.Join(binDir, "head_sha")
 	ghPath := filepath.Join(binDir, "gh")
 	script := `#!/bin/sh
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
@@ -1233,6 +1337,15 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "state" ]; then
     echo '{"state":"MERGED"}'
   else
     echo '{"state":"OPEN"}'
+  fi
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "headRefOid" ]; then
+  if [ -f "` + headSHAFile + `" ]; then
+    sha=$(cat "` + headSHAFile + `")
+    echo "{\"headRefOid\":\"$sha\"}"
+  else
+    echo '{"headRefOid":""}'
   fi
   exit 0
 fi
@@ -1255,5 +1368,5 @@ exit 1
 	}
 
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
-	return mergedMarker
+	return queuedMergedGHFiles{mergedMarker: mergedMarker, headSHAFile: headSHAFile}
 }

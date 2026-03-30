@@ -97,6 +97,12 @@ func (g *Git) Tag(name string) error {
 	return err
 }
 
+// TagAt creates a lightweight tag at a specific commit (not necessarily HEAD).
+func (g *Git) TagAt(name, ref string) error {
+	_, err := g.run("tag", name, ref)
+	return err
+}
+
 // TagAnnotated creates an annotated tag with the given message.
 func (g *Git) TagAnnotated(name, message string) error {
 	_, err := g.run("tag", "-a", name, "-m", message)
