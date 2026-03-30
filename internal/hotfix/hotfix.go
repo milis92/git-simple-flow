@@ -353,12 +353,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			}
 			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
 			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
-			if err := cb.Run(func() error {
-				if err := ctxGH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
-					return err
-				}
-				return ctxGH.VerifyPRMerged()
-			}); err != nil {
+			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
 				return err
 			}
 
@@ -366,7 +361,8 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
-			// Create patch tag (after merge succeeds, so no orphan tag on failure)
+			// Create patch tag — gh pr merge succeeded, so the merge is at least
+			// queued. Tag is the deployment trigger regardless of queue status.
 			cb.Start()
 			if err := ctxGit.Tag(newTag); err != nil {
 				cb.Fail(err.Error())
@@ -381,6 +377,23 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			// Push tag
 			if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
 				return err
+			}
+
+			releasedTag = newTag
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Verify PR was actually merged before cleanup.
+			// If queued/auto-merge, skip cleanup (branch still needed) but tag is published.
+			if err := ctxGH.VerifyPRMerged(); err != nil {
+				// PR is queued — skip remaining cleanup steps
+				for range 4 {
+					cb.Start()
+					cb.SkipStep("PR queued — skipped")
+				}
+				return nil
 			}
 
 			if ctx.Err() != nil {
@@ -419,7 +432,6 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return err
 			}
 
-			releasedTag = newTag
 			return nil
 		})
 		if err != nil {
@@ -558,12 +570,10 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		if err := s.GH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
 			return err
 		}
-		if err := s.GH.VerifyPRMerged(); err != nil {
-			return err
-		}
-		s.UI.Success("PR merged (merge)")
+		s.UI.Success("PR merge requested")
 
-		// Tag (after merge succeeds, so no orphan tag on failure)
+		// Tag — gh pr merge succeeded, so the merge is at least queued.
+		// Tag is the deployment trigger regardless of queue status.
 		if err := s.Git.Tag(newTag); err != nil {
 			return err
 		}
@@ -575,7 +585,16 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		}
 		s.UI.Success("Pushed tag to origin")
 
-		// Cleanup
+		// Verify PR was actually merged before cleanup.
+		// If queued/auto-merge, skip cleanup (branch still needed) but tag is published.
+		if err := s.GH.VerifyPRMerged(); err != nil {
+			s.UI.Warning("PR is queued or pending — branch kept, tag published")
+			s.UI.Result("Hotfix released " + newTag)
+			return nil
+		}
+		s.UI.Success("PR merged (merge)")
+
+		// Cleanup — only reached when PR is actually merged
 		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
 			return err
 		}
