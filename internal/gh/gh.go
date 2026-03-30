@@ -90,9 +90,13 @@ func (g *GH) MergePR(strategy string) error {
 }
 
 // MergePRWithMessage merges the current branch's PR using the given strategy
-// and sets the merge commit subject and body.
-func (g *GH) MergePRWithMessage(strategy, subject, body string) error {
+// and sets the merge commit subject and body. If matchHead is non-empty,
+// --match-head-commit is passed to reject the merge if the PR head has moved.
+func (g *GH) MergePRWithMessage(strategy, subject, body, matchHead string) error {
 	args := []string{"pr", "merge", "--" + strategy, "--subject", subject, "--body", body}
+	if matchHead != "" {
+		args = append(args, "--match-head-commit", matchHead)
+	}
 	_, err := g.runner.Run("gh", args...)
 	return err
 }

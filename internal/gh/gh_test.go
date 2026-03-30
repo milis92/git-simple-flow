@@ -286,7 +286,7 @@ exit 1
 `)
 
 	client := New(runner.NewRunner(false, false))
-	if err := client.MergePRWithMessage("merge", "Merge hotfix v1.2.4", ""); err != nil {
+	if err := client.MergePRWithMessage("merge", "Merge hotfix v1.2.4", "", ""); err != nil {
 		t.Fatalf("MergePRWithMessage() error = %v", err)
 	}
 }

@@ -318,13 +318,13 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
-			// Squash + force push (skip if already squashed from a previous attempt)
-			parentSHA, err := ctxGit.ForQuery().RevParse("HEAD~1")
+			// Squash + force push (skip if already squashed from a previous attempt).
+			// Use commit count instead of first-parent check to handle merge commits.
+			commitCount, err := ctxGit.ForQuery().CommitCount(tagSHA, "HEAD")
 			if err != nil {
-				return fmt.Errorf("could not resolve HEAD~1: %w", err)
+				return fmt.Errorf("could not count commits: %w", err)
 			}
-			needsSquash := parentSHA != tagSHA
-			if needsSquash {
+			if commitCount > 1 {
 				cb.Start()
 				if err := ctxGit.ResetSoft(tagSHA); err != nil {
 					cb.Fail(err.Error())
@@ -356,6 +356,12 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
+			// Capture HEAD after squash for --match-head-commit pinning.
+			squashedSHA, err := ctxGit.ForQuery().RevParse("HEAD")
+			if err != nil {
+				return fmt.Errorf("could not resolve HEAD after squash: %w", err)
+			}
+
 			// Compute version for the release tag.
 			current, err := version.Parse(strings.TrimPrefix(latestTag, s.Config.TagPrefix))
 			if err != nil {
@@ -367,11 +373,12 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			}
 			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
 
-			// Merge PR with --merge strategy.
-			// Note: the CI check above validates pre-squash SHAs as a sanity check.
-			// gh pr merge enforces branch protection on the actual (post-squash) SHA.
+			// Merge PR with --merge strategy, pinned to the squashed SHA.
+			// --match-head-commit rejects the merge if the branch moved after force-push.
 			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
-			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
+			if err := cb.Run(func() error {
+				return ctxGH.MergePRWithMessage("merge", mergeSubject, "", squashedSHA)
+			}); err != nil {
 				return err
 			}
 
@@ -565,12 +572,13 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 			return fmt.Errorf("hotfix branch contains unreleased main commits (was rebased or merged with %s); cannot auto-release", s.Config.MainBranch)
 		}
 
-		// Squash + force push (skip if already squashed from a previous attempt)
-		parentSHA, err := qGit.RevParse("HEAD~1")
+		// Squash + force push (skip if already squashed from a previous attempt).
+		// Use commit count instead of first-parent check to handle merge commits.
+		commitCount, err := qGit.CommitCount(tagSHA, "HEAD")
 		if err != nil {
-			return fmt.Errorf("could not resolve HEAD~1: %w", err)
+			return fmt.Errorf("could not count commits: %w", err)
 		}
-		if parentSHA != tagSHA {
+		if commitCount > 1 {
 			if err := s.Git.ResetSoft(base); err != nil {
 				return fmt.Errorf("could not squash commits: %w", err)
 			}
@@ -588,6 +596,12 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 			s.UI.Muted("Already squashed, skipping")
 		}
 
+		// Capture HEAD after squash for --match-head-commit pinning.
+		squashedSHA, err := qGit.RevParse("HEAD")
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD after squash: %w", err)
+		}
+
 		// Compute version
 		currentVer, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
 		if err != nil {
@@ -599,11 +613,10 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		}
 		newTag := nextVer.FormatWithPrefix(s.Config.TagPrefix)
 
-		// Merge PR with --merge strategy and custom subject.
-		// Note: the CI check above validates pre-squash SHAs as a sanity check.
-		// gh pr merge enforces branch protection on the actual (post-squash) SHA.
+		// Merge PR with --merge strategy, pinned to the squashed SHA.
+		// --match-head-commit rejects the merge if the branch moved after force-push.
 		mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
-		if err := s.GH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
+		if err := s.GH.MergePRWithMessage("merge", mergeSubject, "", squashedSHA); err != nil {
 			return err
 		}
 		s.UI.Success("PR merge requested")

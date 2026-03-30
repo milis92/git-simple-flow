@@ -202,6 +202,19 @@ func (g *Git) MergeBase(a, b string) (string, error) {
 	return g.run("merge-base", a, b)
 }
 
+// CommitCount returns the number of commits reachable from head but not from base.
+func (g *Git) CommitCount(base, head string) (int, error) {
+	out, err := g.run("rev-list", "--count", base+".."+head)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	if _, err := fmt.Sscanf(out, "%d", &n); err != nil {
+		return 0, fmt.Errorf("could not parse commit count: %w", err)
+	}
+	return n, nil
+}
+
 // ResetSoft moves HEAD to the given ref while keeping all changes staged.
 func (g *Git) ResetSoft(ref string) error {
 	_, err := g.run("reset", "--soft", ref)
