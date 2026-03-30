@@ -37,7 +37,8 @@ exit 1
 `, mergeMarker)
 
 	r := runner.NewRunner(false, false)
-	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false)
+	var merged bool
+	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false, &merged)
 
 	err := wf(context.Background(), ui.StepCallbacks{
 		Start: func() {},
@@ -176,13 +177,18 @@ fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   exit 0
 fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"state":"MERGED"}'
+  exit 0
+fi
 echo "unexpected gh command: $*" >&2
 exit 1
 `, "")
 	installWorkflowGit(t, deleteStarted, deleteDone, "feature/test")
 
 	r := runner.NewRunner(false, false)
-	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false)
+	var merged bool
+	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false, &merged)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

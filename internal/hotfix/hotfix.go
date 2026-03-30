@@ -446,16 +446,21 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		return nil
 	}
 
-	// Non-release path — unchanged, uses shared FinishWorkflow
+	// Non-release path — uses shared FinishWorkflow with merge verification
 	defs := workflow.FinishStepDefs(s.Config.MainBranch)
 	if opts.Force {
 		defs[0].Label = "Check CI (skipped)"
 	}
 
-	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force)
+	var merged bool
+	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged)
 	err = s.RunProgress("git sf hotfix finish", branch, defs, commonFinish)
 	if err != nil {
 		return err
+	}
+	if !merged {
+		s.UI.Warning("PR is queued or pending — re-run 'git sf hotfix finish' after merge completes")
+		return nil
 	}
 	s.UI.Result("Hotfix complete!")
 	return nil
@@ -592,11 +597,19 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		return nil
 	}
 
-	// Non-release path — unchanged
+	// Non-release path
 	s.UI.Info(fmt.Sprintf("Merging PR #%d — %q", pr.Number, pr.Title))
 
 	if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
 		return err
+	}
+
+	if err := s.GH.VerifyPRMerged(); err != nil {
+		if !errors.Is(err, gh.ErrPRNotMerged) {
+			return fmt.Errorf("post-merge verification failed: %w", err)
+		}
+		s.UI.Warning("PR is queued or pending — re-run 'git sf hotfix finish' after merge completes")
+		return nil
 	}
 	s.UI.Success(fmt.Sprintf("PR merged (%s)", s.Config.MergeStrategy))
 
@@ -635,7 +648,10 @@ type releasePreflightResult struct {
 // fetch, sync check, retry detection (returns nil result if retry handled),
 // tag lookup scoped to origin/main, and merge-base contamination guard.
 func (s *Service) releasePreflight(branch string, qGit *git.Git, qGH *gh.GH) (*releasePreflightResult, error) {
-	if err := qGit.Fetch(); err != nil {
+	// Fetch through the normal runner so --dry-run logs the command without
+	// executing it. Using the query runner here would mutate remote tracking
+	// refs even during a preview.
+	if err := s.Git.Fetch(); err != nil {
 		return nil, fmt.Errorf("could not fetch: %w", err)
 	}
 
