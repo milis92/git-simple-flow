@@ -70,9 +70,16 @@ func (s *Service) Start(name string, opts StartOpts) error {
 		return err
 	}
 
-	// Use the latest tag reachable from main, not the global latest, so
-	// off-main hotfix tags from queued merges don't become the hotfix base.
-	tag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, s.Config.MainBranch)
+	// Best-effort fetch so we see the latest tags from the remote.
+	// Ignored when no remote is configured (e.g. local-only repos).
+	_ = qGit.Fetch()
+
+	// Prefer origin/main for fresh tag data; fall back to local main
+	// when no remote is configured.
+	tag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "origin/"+s.Config.MainBranch)
+	if err != nil {
+		tag, err = qGit.LatestTagOnBranch(s.Config.TagPrefix, s.Config.MainBranch)
+	}
 	if err != nil {
 		return fmt.Errorf("no tags found. Create an initial release first with 'git sf release'")
 	}
@@ -615,23 +622,23 @@ func (s *Service) releasePreflight(branch string, qGit *git.Git, qGH *gh.GH) (*r
 	if err := qGit.Fetch(); err != nil {
 		return nil, fmt.Errorf("could not fetch: %w", err)
 	}
+
+	// Retry detection runs before the sync check because the hotfix branch
+	// may have been auto-deleted by GitHub after merge, making the sync
+	// check fail on a missing remote ref.
+	if verifyErr := qGH.VerifyPRMerged(); verifyErr == nil {
+		if err := s.retryTagAndCleanup(branch, qGit); err != nil {
+			return nil, err
+		}
+		return nil, nil // retry handled
+	}
+
 	inSync, err := qGit.IsInSyncWithRemote(branch)
 	if err != nil {
 		return nil, fmt.Errorf("could not check remote sync: %w", err)
 	}
 	if !inSync {
 		return nil, fmt.Errorf("hotfix branch %s has diverged from remote; pull or reconcile before releasing", branch)
-	}
-
-	// Retry detection: if PR was already merged (e.g. a queued merge completed),
-	// compute the release tag, create it if needed, and proceed to cleanup.
-	// This check must run before the contamination guard because after a merge,
-	// the merge-base between origin/main and HEAD changes.
-	if verifyErr := qGH.VerifyPRMerged(); verifyErr == nil {
-		if err := s.retryTagAndCleanup(branch, qGit); err != nil {
-			return nil, err
-		}
-		return nil, nil // retry handled
 	}
 
 	// Use the latest tag reachable from origin/main as the base version.
@@ -724,15 +731,20 @@ func (s *Service) cleanupAfterMerge(branch, tag string) error {
 }
 
 // retryTagAndCleanup is the retry path for a previous run whose merge was
-// queued and has since completed. It computes the release tag from the
-// main-reachable base tag, creates and pushes the tag if it doesn't exist
-// yet, then performs cleanup.
+// queued and has since completed. It derives the base tag from the hotfix
+// branch's own parent commit (HEAD^) rather than from main's current state,
+// so that a new release landing on main between runs doesn't cause a wrong
+// version bump.
 func (s *Service) retryTagAndCleanup(branch string, qGit *git.Git) error {
-	latestTag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "origin/"+s.Config.MainBranch)
+	// The squashed hotfix commit sits directly on top of the base tag commit,
+	// so HEAD^ is the base tag commit. Using LatestTagOnBranch scoped to HEAD^
+	// finds the tag the hotfix was originally branched from, regardless of
+	// what has since landed on main.
+	baseTag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "HEAD^")
 	if err != nil {
-		return err
+		return fmt.Errorf("could not determine hotfix base tag: %w", err)
 	}
-	newTag, err := s.computeReleaseTag(latestTag)
+	newTag, err := s.computeReleaseTag(baseTag)
 	if err != nil {
 		return err
 	}

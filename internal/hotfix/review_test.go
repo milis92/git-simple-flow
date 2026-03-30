@@ -605,6 +605,186 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	}
 }
 
+func TestStartFetchesBeforeTagLookup(t *testing.T) {
+	// Set up repo with v0.1.0 on main. Then from a second clone push v0.2.0
+	// to main so the first clone's local main is stale.
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.1.0")
+	runGit(t, repoDir, "push", "origin", "v0.1.0")
+
+	// Second clone pushes v0.2.0 on main.
+	pusherDir := filepath.Join(t.TempDir(), "pusher")
+	runGit(t, t.TempDir(), "clone", bareDir, pusherDir)
+	runGit(t, pusherDir, "config", "user.name", "Pusher")
+	runGit(t, pusherDir, "config", "user.email", "pusher@example.com")
+	if err := os.WriteFile(filepath.Join(pusherDir, "feature.txt"), []byte("feat\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, pusherDir, "add", ".")
+	runGit(t, pusherDir, "commit", "-m", "feature")
+	runGit(t, pusherDir, "push", "origin", "main")
+	runGit(t, pusherDir, "tag", "v0.2.0")
+	runGit(t, pusherDir, "push", "origin", "v0.2.0")
+
+	// First clone's local main is still at v0.1.0. Start should fetch and
+	// pick up v0.2.0 from origin/main.
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Start("new-fix", StartOpts{}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Should be based on v0.2.0 (from origin/main), not v0.1.0 (stale local main).
+	v200SHA := runGit(t, repoDir, "rev-parse", "v0.2.0^{commit}")
+	headSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if headSHA != v200SHA {
+		t.Fatalf("hotfix branched from %s, want %s (v0.2.0)", headSHA, v200SHA)
+	}
+}
+
+func TestFinishReleaseRetryAfterBranchAutoDeleted(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	// First run: PR is queued.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	// Simulate: merge queue completes AND GitHub auto-deletes the branch.
+	mergerDir := filepath.Join(t.TempDir(), "merger")
+	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+	runGit(t, mergerDir, "push", "origin", "--delete", "hotfix/test")
+
+	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry: should succeed despite remote branch being gone.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v, want success after branch auto-delete", err)
+	}
+
+	tags := runGit(t, repoDir, "tag", "-l", "v0.1.1")
+	if tags != "v0.1.1" {
+		t.Fatalf("expected tag v0.1.1, got %q", tags)
+	}
+}
+
+func TestFinishReleaseRetryUsesCorrectVersionAfterNewRelease(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	// First run: PR is queued.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	// Between runs, someone releases v0.2.0 on main.
+	releaserDir := filepath.Join(t.TempDir(), "releaser")
+	runGit(t, t.TempDir(), "clone", bareDir, releaserDir)
+	runGit(t, releaserDir, "config", "user.name", "Releaser")
+	runGit(t, releaserDir, "config", "user.email", "releaser@example.com")
+	if err := os.WriteFile(filepath.Join(releaserDir, "feature.txt"), []byte("feat\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, releaserDir, "add", ".")
+	runGit(t, releaserDir, "commit", "-m", "new feature")
+	runGit(t, releaserDir, "push", "origin", "main")
+	runGit(t, releaserDir, "tag", "v0.2.0")
+	runGit(t, releaserDir, "push", "origin", "v0.2.0")
+
+	// Merge the hotfix into main (simulating queue completion).
+	runGit(t, releaserDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, releaserDir, "push", "origin", "main")
+
+	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry: should create v0.1.1 (patch of v0.1.0 base), NOT v0.2.1.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v", err)
+	}
+
+	if tags := runGit(t, repoDir, "tag", "-l", "v0.2.1"); tags == "v0.2.1" {
+		t.Fatalf("retry created v0.2.1 (wrong version — bumped from v0.2.0 on main instead of v0.1.0 base)")
+	}
+	if tags := runGit(t, repoDir, "tag", "-l", "v0.1.1"); tags != "v0.1.1" {
+		t.Fatalf("expected tag v0.1.1, got %q", tags)
+	}
+}
+
 func TestFinishReleasePreflightIgnoresOffMainTags(t *testing.T) {
 	// Set up repo: main has v0.1.0, an unrelated hotfix published v0.1.1 off-main.
 	bareDir := t.TempDir()
