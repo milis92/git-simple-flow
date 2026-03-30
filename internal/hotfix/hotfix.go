@@ -5,6 +5,7 @@ package hotfix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -69,9 +70,30 @@ func (s *Service) Start(name string, opts StartOpts) error {
 		return err
 	}
 
-	tag, err := qGit.LatestTag(s.Config.TagPrefix)
+	// Best-effort fetch so we see the latest tags from the remote.
+	// Ignored when no remote is configured (e.g. local-only repos).
+	hasRemote := qGit.Fetch() == nil
+
+	// Prefer origin/main for fresh tag data; fall back to local main
+	// when no remote is configured.
+	tag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "origin/"+s.Config.MainBranch)
+	if err != nil {
+		tag, err = qGit.LatestTagOnBranch(s.Config.TagPrefix, s.Config.MainBranch)
+	}
 	if err != nil {
 		return fmt.Errorf("no tags found. Create an initial release first with 'git sf release'")
+	}
+
+	// Guard against local-only tags that were never pushed. A hotfix must
+	// branch from a published release, not an unpushed local tag.
+	if hasRemote {
+		published, checkErr := qGit.TagExistsOnRemote(tag)
+		if checkErr != nil {
+			return fmt.Errorf("could not verify tag %s on remote: %w", tag, checkErr)
+		}
+		if !published {
+			return fmt.Errorf("tag %s exists locally but not on origin — push it first or use a published release", tag)
+		}
 	}
 
 	branchName := s.Config.HotfixPrefix + name
@@ -200,6 +222,10 @@ func (s *Service) Finish(opts FinishOpts) error {
 		return err
 	}
 
+	if !strings.HasPrefix(branch, s.Config.HotfixPrefix) {
+		return fmt.Errorf("not on a hotfix branch (current: %s)", branch)
+	}
+
 	if s.UI.Interactive {
 		return s.finishInteractive(branch, opts, qGH)
 	}
@@ -224,81 +250,219 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		return nil
 	}
 
+	doRelease := opts.Release || s.Config.HotfixAutoRelease
+
+	if doRelease {
+		pf, err := s.releasePreflight(branch, s.Git.ForQuery(), qGH)
+		if err != nil {
+			return err
+		}
+		if pf == nil {
+			return nil // retry path handled it
+		}
+
+		defs := []ui.StepDef{
+			{Label: "Check CI"},
+			{Label: "Squash commits"},
+			{Label: "Force push"},
+			{Label: "Merge PR"},
+			{Label: "Verify merge"},
+			{Label: "Create patch tag"},
+			{Label: "Push tag"},
+			{Label: "Switch to " + s.Config.MainBranch},
+			{Label: "Pull latest"},
+			{Label: "Delete local branch"},
+			{Label: "Delete remote branch"},
+		}
+		if opts.Force {
+			defs[0].Label = "Check CI (skipped)"
+		}
+
+		var releasedTag string
+		err = s.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
+			ctxGit := s.Git.WithContext(ctx)
+			ctxGH := s.GH.WithContext(ctx)
+
+			// Check CI
+			cb.Start()
+			if !opts.Force {
+				checks, err := ctxGH.ForQuery().GetPRChecks()
+				if err != nil {
+					cb.Fail(fmt.Sprintf("could not fetch PR checks: %s", err))
+					return fmt.Errorf("could not fetch PR checks: %w", err)
+				}
+				failing, pending := gh.ClassifyChecks(checks)
+				if len(failing) > 0 {
+					errMsg := fmt.Sprintf("PR checks failed: %s (use --force to override)", strings.Join(failing, ", "))
+					cb.Fail(errMsg)
+					return fmt.Errorf("%s", errMsg)
+				}
+				if len(pending) > 0 {
+					errMsg := fmt.Sprintf("PR checks still running: %s (use --force to override)", strings.Join(pending, ", "))
+					cb.Fail(errMsg)
+					return fmt.Errorf("%s", errMsg)
+				}
+			}
+			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Squash + force push (skip if already squashed from a previous attempt).
+			cb.Start()
+			didSquash, err := s.squashForRelease(ctxGit, pf.tagSHA, pr.Title)
+			if err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			cb.Done()
+
+			if didSquash {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if err := cb.Run(func() error { return ctxGit.ForcePush(branch) }); err != nil {
+					return err
+				}
+			} else {
+				cb.Start()
+				cb.Done()
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			squashedSHA, err := ctxGit.ForQuery().RevParse("HEAD")
+			if err != nil {
+				return fmt.Errorf("could not resolve HEAD after squash: %w", err)
+			}
+
+			newTag, err := s.computeReleaseTag(pf.latestTag)
+			if err != nil {
+				return err
+			}
+
+			// Merge PR with --merge strategy, pinned to the squashed SHA.
+			// --match-head-commit rejects the merge if the branch moved after force-push.
+			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
+			if err := cb.Run(func() error {
+				return ctxGH.MergePRWithMessage("merge", mergeSubject, "", squashedSHA)
+			}); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Verify PR was actually merged before creating the tag.
+			// Tag must not be published until the merge is confirmed.
+			cb.Start()
+			if err := ctxGH.VerifyPRMerged(); err != nil {
+				if !errors.Is(err, gh.ErrPRNotMerged) {
+					cb.Fail(fmt.Sprintf("post-merge verification failed: %s", err))
+					return fmt.Errorf("post-merge verification failed: %w", err)
+				}
+				// PR is queued — skip tag + cleanup steps
+				cb.SkipStep("PR queued — waiting")
+				for range 5 {
+					cb.Start()
+					cb.SkipStep("PR queued — skipped")
+				}
+				s.UI.Warning("PR is queued or pending — run 'git sf hotfix finish --release' again after merge completes")
+				return nil
+			}
+			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Create patch tag — PR is confirmed merged.
+			cb.Start()
+			if err := ctxGit.Tag(newTag); err != nil {
+				cb.Fail(err.Error())
+				return err
+			}
+			cb.Done()
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Push tag
+			if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
+				return err
+			}
+
+			releasedTag = newTag
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Switch to main
+			if err := cb.Run(func() error { return ctxGit.Checkout(s.Config.MainBranch) }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Pull latest
+			if err := cb.Run(func() error { return ctxGit.Pull() }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Delete local branch
+			if err := cb.Run(func() error { return ctxGit.DeleteLocalBranch(branch) }); err != nil {
+				return err
+			}
+
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Delete remote branch (soft fail)
+			if err := cb.RunSoftFail(func() error { return ctxGit.DeleteRemoteBranch(branch) }); err != nil {
+				return err
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if releasedTag != "" {
+			s.UI.Result("Hotfix released " + releasedTag)
+		}
+		return nil
+	}
+
+	// Non-release path — uses shared FinishWorkflow with merge verification
 	defs := workflow.FinishStepDefs(s.Config.MainBranch)
 	if opts.Force {
 		defs[0].Label = "Check CI (skipped)"
 	}
 
-	doRelease := opts.Release || s.Config.HotfixAutoRelease
-	if doRelease {
-		defs = append(defs,
-			ui.StepDef{Label: "Create patch tag"},
-			ui.StepDef{Label: "Push tag"},
-		)
-	}
-
-	var releasedTag string
-	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force)
-	err = s.RunProgress("git sf hotfix finish", branch, defs, func(ctx context.Context, cb ui.StepCallbacks) error {
-		if err := commonFinish(ctx, cb); err != nil {
-			return err
-		}
-
-		if !doRelease {
-			return nil
-		}
-
-		ctxGit := s.Git.WithContext(ctx)
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// Create patch tag — LatestTag is a read-only query that must
-		// execute even in dry-run mode to resolve the next version.
-		cb.Start()
-		tag, err := ctxGit.ForQuery().LatestTag(s.Config.TagPrefix)
-		if err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
-		if err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		next, err := current.Bump("patch")
-		if err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
-		if err := ctxGit.Tag(newTag); err != nil {
-			cb.Fail(err.Error())
-			return err
-		}
-		cb.Done()
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		// Push tag
-		if err := cb.Run(func() error { return ctxGit.PushTag(newTag) }); err != nil {
-			return err
-		}
-
-		releasedTag = newTag
-		return nil
-	})
+	var merged bool
+	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged)
+	err = s.RunProgress("git sf hotfix finish", branch, defs, commonFinish)
 	if err != nil {
 		return err
 	}
-	if releasedTag != "" {
-		s.UI.Result("Hotfix released " + releasedTag)
-	} else {
-		s.UI.Result("Hotfix complete!")
+	if !merged {
+		s.UI.Warning("PR is queued or pending — re-run 'git sf hotfix finish' after merge completes")
+		return nil
 	}
+	s.UI.Result("Hotfix complete!")
 	return nil
 }
 
@@ -342,10 +506,110 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		return nil
 	}
 
+	doRelease := opts.Release || s.Config.HotfixAutoRelease
+
+	if doRelease {
+		pf, err := s.releasePreflight(branch, s.Git.ForQuery(), s.GH.ForQuery())
+		if err != nil {
+			return err
+		}
+		if pf == nil {
+			return nil // retry path handled it
+		}
+
+		// Squash + force push.
+		didSquash, err := s.squashForRelease(s.Git, pf.tagSHA, pr.Title)
+		if err != nil {
+			return err
+		}
+		if didSquash {
+			s.UI.Success("Squashed commits")
+			if err := s.Git.ForcePush(branch); err != nil {
+				return fmt.Errorf("could not force push: %w", err)
+			}
+			s.UI.Success("Force pushed " + branch)
+		} else {
+			s.UI.Muted("Already squashed, skipping")
+		}
+
+		squashedSHA, err := s.Git.ForQuery().RevParse("HEAD")
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD after squash: %w", err)
+		}
+
+		newTag, err := s.computeReleaseTag(pf.latestTag)
+		if err != nil {
+			return err
+		}
+
+		// Merge PR with --merge strategy, pinned to the squashed SHA.
+		mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
+		if err := s.GH.MergePRWithMessage("merge", mergeSubject, "", squashedSHA); err != nil {
+			return err
+		}
+		s.UI.Success("PR merge requested")
+
+		// Verify PR was actually merged before creating the tag.
+		// Tag must not be published until the merge is confirmed.
+		if err := s.GH.VerifyPRMerged(); err != nil {
+			if !errors.Is(err, gh.ErrPRNotMerged) {
+				return fmt.Errorf("post-merge verification failed: %w", err)
+			}
+			s.UI.Warning("PR is queued or pending — run 'git sf hotfix finish --release' again after merge completes")
+			return nil
+		}
+		s.UI.Success("PR merged (merge)")
+
+		// Create and push tag — PR is confirmed merged.
+		if err := s.Git.Tag(newTag); err != nil {
+			return err
+		}
+		s.UI.Success("Tagged " + newTag)
+
+		if err := s.Git.PushTag(newTag); err != nil {
+			return err
+		}
+		s.UI.Success("Pushed tag to origin")
+
+		// Cleanup
+		if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+			return err
+		}
+		s.UI.Success("Switched to " + s.Config.MainBranch)
+
+		if err := s.Git.Pull(); err != nil {
+			return err
+		}
+		s.UI.Success("Pulled latest changes")
+
+		if err := s.Git.DeleteLocalBranch(branch); err != nil {
+			return err
+		}
+		s.UI.Success("Deleted branch " + branch + " (local)")
+
+		if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+			s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
+		} else {
+			s.UI.Success("Deleted branch " + branch + " (remote)")
+		}
+
+		s.UI.Result("Hotfix released " + newTag)
+		return nil
+	}
+
+	// Non-release path
 	s.UI.Info(fmt.Sprintf("Merging PR #%d — %q", pr.Number, pr.Title))
 
 	if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
 		return err
+	}
+
+	if err := s.GH.VerifyPRMerged(); err != nil {
+		if !errors.Is(err, gh.ErrPRNotMerged) {
+			return fmt.Errorf("post-merge verification failed: %w", err)
+		}
+		s.UI.Warning("PR is queued or pending — re-run 'git sf hotfix finish' after merge completes")
+		return nil
 	}
 	s.UI.Success(fmt.Sprintf("PR merged (%s)", s.Config.MergeStrategy))
 
@@ -370,38 +634,184 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		s.UI.Success("Deleted branch " + branch + " (remote)")
 	}
 
-	// Auto-release if --release flag or config
-	if opts.Release || s.Config.HotfixAutoRelease {
-		tag, err := s.Git.ForQuery().LatestTag(s.Config.TagPrefix)
-		if err != nil {
-			return err
-		}
-		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
-		if err != nil {
-			return err
-		}
-		next, err := current.Bump("patch")
-		if err != nil {
-			return fmt.Errorf("could not bump version: %w", err)
-		}
-		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
-
-		if err := s.Git.Tag(newTag); err != nil {
-			return err
-		}
-		s.UI.Success("Tagged " + newTag)
-
-		if err := s.Git.PushTag(newTag); err != nil {
-			return err
-		}
-		s.UI.Success("Pushed tag to origin")
-
-		s.UI.Result("Hotfix released " + newTag)
-		return nil
-	}
-
 	s.UI.Result("Done.")
 	return nil
+}
+
+// releasePreflightResult holds the computed state from release preflight checks.
+type releasePreflightResult struct {
+	latestTag string
+	tagSHA    string
+}
+
+// releasePreflight runs the shared preflight checks for the hotfix release flow:
+// fetch, sync check, retry detection (returns nil result if retry handled),
+// tag lookup scoped to origin/main, and merge-base contamination guard.
+func (s *Service) releasePreflight(branch string, qGit *git.Git, qGH *gh.GH) (*releasePreflightResult, error) {
+	// Fetch through the normal runner so --dry-run logs the command without
+	// executing it. Using the query runner here would mutate remote tracking
+	// refs even during a preview.
+	if err := s.Git.Fetch(); err != nil {
+		return nil, fmt.Errorf("could not fetch: %w", err)
+	}
+
+	// Retry detection runs before the sync check because the hotfix branch
+	// may have been auto-deleted by GitHub after merge, making the sync
+	// check fail on a missing remote ref.
+	if verifyErr := qGH.VerifyPRMerged(); verifyErr == nil {
+		if err := s.retryTagAndCleanup(branch, qGit, qGH); err != nil {
+			return nil, err
+		}
+		return nil, nil // retry handled
+	}
+
+	inSync, err := qGit.IsInSyncWithRemote(branch)
+	if err != nil {
+		return nil, fmt.Errorf("could not check remote sync: %w", err)
+	}
+	if !inSync {
+		return nil, fmt.Errorf("hotfix branch %s has diverged from remote; pull or reconcile before releasing", branch)
+	}
+
+	// Use the latest tag reachable from origin/main as the base version.
+	// This prevents off-main hotfix tags from poisoning the preflight.
+	latestTag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "origin/"+s.Config.MainBranch)
+	if err != nil {
+		return nil, err
+	}
+	tagSHA, err := qGit.RevParse(latestTag + "^{commit}")
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve tag %s: %w", latestTag, err)
+	}
+
+	// Ensure hotfix branch has not been contaminated with unreleased main commits.
+	// First check: merge-base must equal the base tag (catches merges/rebases).
+	mergeBase, err := qGit.MergeBase("origin/"+s.Config.MainBranch, "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("could not find merge base: %w", err)
+	}
+	if mergeBase != tagSHA {
+		return nil, fmt.Errorf("hotfix branch contains unreleased main commits (was rebased or merged with %s); cannot auto-release", s.Config.MainBranch)
+	}
+
+	// Second check: no cherry-picked commits from unreleased main (catches
+	// cherry-picks which don't change the merge-base).
+	hasCherries, err := qGit.HasCherryPickedCommits("origin/"+s.Config.MainBranch, "HEAD", tagSHA)
+	if err != nil {
+		return nil, fmt.Errorf("could not check for cherry-picked commits: %w", err)
+	}
+	if hasCherries {
+		return nil, fmt.Errorf("hotfix branch contains cherry-picked commits from %s; cannot auto-release", s.Config.MainBranch)
+	}
+
+	return &releasePreflightResult{latestTag: latestTag, tagSHA: tagSHA}, nil
+}
+
+// squashForRelease checks whether the hotfix branch has multiple commits above
+// the base tag and, if so, squashes them into a single commit. Returns true if
+// a squash was performed (caller must force-push). Does not force-push itself
+// because the interactive path needs that as a separate progress step.
+func (s *Service) squashForRelease(g *git.Git, tagSHA, prTitle string) (didSquash bool, err error) {
+	commitCount, err := g.ForQuery().CommitCount(tagSHA, "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("could not count commits: %w", err)
+	}
+	if commitCount <= 1 {
+		return false, nil
+	}
+	if err := g.ResetSoft(tagSHA); err != nil {
+		return false, fmt.Errorf("could not squash commits: %w", err)
+	}
+	if err := g.CommitWithMessage("hotfix: " + prTitle); err != nil {
+		return false, fmt.Errorf("could not create squashed commit: %w", err)
+	}
+	return true, nil
+}
+
+// computeReleaseTag parses the latest tag as semver, bumps the patch version,
+// and returns the formatted new tag string.
+func (s *Service) computeReleaseTag(latestTag string) (string, error) {
+	current, err := version.Parse(strings.TrimPrefix(latestTag, s.Config.TagPrefix))
+	if err != nil {
+		return "", err
+	}
+	next, err := current.Bump("patch")
+	if err != nil {
+		return "", err
+	}
+	return next.FormatWithPrefix(s.Config.TagPrefix), nil
+}
+
+// cleanupAfterMerge performs post-merge cleanup when a previous run already
+// completed the squash-tag-merge steps but was interrupted before cleanup.
+// This is the retry path for queued merges that have since completed.
+func (s *Service) cleanupAfterMerge(branch, tag string) error {
+	s.UI.Info("Tag " + tag + " already exists and PR is merged — resuming cleanup")
+
+	if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+		return err
+	}
+	s.UI.Success("Switched to " + s.Config.MainBranch)
+
+	if err := s.Git.Pull(); err != nil {
+		return err
+	}
+	s.UI.Success("Pulled latest changes")
+
+	if err := s.Git.DeleteLocalBranch(branch); err != nil {
+		return err
+	}
+	s.UI.Success("Deleted branch " + branch + " (local)")
+
+	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
+	} else {
+		s.UI.Success("Deleted branch " + branch + " (remote)")
+	}
+
+	s.UI.Result("Hotfix released " + tag)
+	return nil
+}
+
+// retryTagAndCleanup is the retry path for a previous run whose merge was
+// queued and has since completed. It anchors everything to the PR's head ref
+// OID — the immutable SHA that GitHub recorded at merge time — so it is
+// independent of local HEAD (which may have moved) and local tags (which may
+// exist without having been pushed).
+func (s *Service) retryTagAndCleanup(branch string, qGit *git.Git, qGH *gh.GH) error {
+	// Get the commit that was actually merged — not local HEAD, which may
+	// have moved if someone pushed more commits after the merge.
+	prHeadSHA, err := qGH.GetPRHeadSHA()
+	if err != nil {
+		return fmt.Errorf("could not determine merged commit: %w", err)
+	}
+
+	// Derive the base tag from the parent of the merged commit.
+	// The squashed hotfix sits directly on top of the base tag, so
+	// prHeadSHA^ is the base tag commit regardless of main's current state.
+	baseTag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, prHeadSHA+"^")
+	if err != nil {
+		return fmt.Errorf("could not determine hotfix base tag: %w", err)
+	}
+	newTag, err := s.computeReleaseTag(baseTag)
+	if err != nil {
+		return err
+	}
+
+	// Always create and push the tag at the merged commit.
+	// A local tag alone is not proof the remote has it (a previous retry
+	// may have died between Tag and PushTag), so we always push.
+	if _, tagErr := qGit.RevParse(newTag + "^{commit}"); tagErr != nil {
+		if err := s.Git.TagAt(newTag, prHeadSHA); err != nil {
+			return err
+		}
+	}
+	if err := s.Git.PushTag(newTag); err != nil {
+		return err
+	}
+	s.UI.Success("Tagged and pushed " + newTag)
+
+	return s.cleanupAfterMerge(branch, newTag)
 }
 
 // Discard abandons the current hotfix branch. It runs preflight checks,

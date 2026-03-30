@@ -55,8 +55,9 @@ func (s *Service) Release(scope, message string) error {
 		return fmt.Errorf("local %s is not in sync with origin/%s — pull or push first", s.Config.MainBranch, s.Config.MainBranch)
 	}
 
-	// Get latest tag and compute next version
-	tag, err := qGit.LatestTag(s.Config.TagPrefix)
+	// Get latest tag reachable from HEAD (on main) and compute next version.
+	// Using LatestTagOnBranch prevents off-main hotfix tags from being picked up.
+	tag, err := qGit.LatestTagOnBranch(s.Config.TagPrefix, "HEAD")
 	var next version.Version
 	var currentDisplay string
 

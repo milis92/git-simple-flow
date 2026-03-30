@@ -1,7 +1,9 @@
 package git
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/milis92/git-simple-flow/internal/runner"
@@ -12,7 +14,7 @@ func setupTestRepo(t *testing.T) string {
 	dir := t.TempDir()
 	r := runner.NewRunner(false, false)
 	cmds := [][]string{
-		{"git", "-C", dir, "init"},
+		{"git", "-C", dir, "init", "-b", "main"},
 		{"git", "-C", dir, "config", "user.email", "test@test.com"},
 		{"git", "-C", dir, "config", "user.name", "Test"},
 	}
@@ -111,5 +113,223 @@ func TestLatestTag(t *testing.T) {
 	}
 	if tag != "v1.1.0" {
 		t.Errorf("LatestTag() = %q, want %q", tag, "v1.1.0")
+	}
+}
+
+func TestLatestTagOnBranch(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	// Tag v1.0.0 on the initial commit (main).
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a side branch with its own tag v1.0.1.
+	if err := g.CreateBranch("hotfix/side"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/fix.txt", []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "commit", "-m", "hotfix"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch back to main. Global LatestTag sees v1.0.1, but
+	// LatestTagOnBranch scoped to main should see only v1.0.0.
+	if err := g.Checkout("main"); err != nil {
+		t.Fatal(err)
+	}
+
+	globalTag, err := g.LatestTag("v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if globalTag != "v1.0.1" {
+		t.Errorf("LatestTag() = %q, want %q", globalTag, "v1.0.1")
+	}
+
+	scopedTag, err := g.LatestTagOnBranch("v", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scopedTag != "v1.0.0" {
+		t.Errorf("LatestTagOnBranch(HEAD) = %q, want %q (should not see off-branch v1.0.1)", scopedTag, "v1.0.0")
+	}
+}
+
+func TestMergeBase(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	// Record the initial commit SHA
+	initSHA, err := r.Run("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a branch and add a commit
+	if err := g.CreateBranch("hotfix/test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/fix.txt", []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "commit", "-m", "hotfix commit"); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := g.MergeBase("main", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != initSHA {
+		t.Errorf("MergeBase() = %q, want %q", base, initSHA)
+	}
+}
+
+func TestForcePush(t *testing.T) {
+	// Set up a bare remote + cloned working copy
+	bareDir := t.TempDir()
+	r := runner.NewRunner(false, false)
+	if _, err := r.Run("git", "init", "--bare", "-b", "main", bareDir); err != nil {
+		t.Fatal(err)
+	}
+
+	parentDir := t.TempDir()
+	workDir := filepath.Join(parentDir, "work")
+	if _, err := r.Run("git", "clone", bareDir, workDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "config", "user.name", "Test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initial commit + push
+	if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("v1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "commit", "-m", "init"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "push", "-u", "origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a branch, push it, then rewrite history
+	g := New(r, workDir)
+	if err := g.CreateBranch("hotfix/test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "fix.txt"), []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "commit", "-m", "original"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", workDir, "push", "-u", "origin", "hotfix/test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Amend the commit (rewrite history)
+	if _, err := r.Run("git", "-C", workDir, "commit", "--amend", "-m", "amended"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Force push should succeed
+	if err := g.ForcePush("hotfix/test"); err != nil {
+		t.Fatalf("ForcePush() error = %v", err)
+	}
+
+	// Verify remote has the amended message
+	remoteMsg, err := r.Run("git", "-C", bareDir, "log", "-1", "--format=%s", "hotfix/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remoteMsg != "amended" {
+		t.Errorf("remote commit message = %q, want %q", remoteMsg, "amended")
+	}
+}
+
+func TestResetSoftAndCommitWithMessage(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	// Record the initial commit SHA
+	initSHA, err := r.Run("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two more commits
+	for i, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(dir+"/"+name, []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Run("git", "-C", dir, "add", "."); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Run("git", "-C", dir, "commit", "-m", fmt.Sprintf("commit %d", i+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Soft reset to the initial commit — changes should be staged
+	if err := g.ResetSoft(initSHA); err != nil {
+		t.Fatal(err)
+	}
+
+	// HEAD should now be the initial commit
+	headSHA, err := r.Run("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headSHA != initSHA {
+		t.Errorf("after ResetSoft, HEAD = %q, want %q", headSHA, initSHA)
+	}
+
+	// Commit the staged changes as a squashed commit
+	if err := g.CommitWithMessage("squashed commit"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify there are exactly 2 commits (init + squashed)
+	logOut, err := r.Run("git", "-C", dir, "rev-list", "--count", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logOut != "2" {
+		t.Errorf("commit count = %q, want %q", logOut, "2")
+	}
+
+	// Verify the squashed commit message
+	msg, err := r.Run("git", "-C", dir, "log", "-1", "--format=%s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "squashed commit" {
+		t.Errorf("commit message = %q, want %q", msg, "squashed commit")
 	}
 }

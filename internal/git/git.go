@@ -97,6 +97,12 @@ func (g *Git) Tag(name string) error {
 	return err
 }
 
+// TagAt creates a lightweight tag at a specific commit (not necessarily HEAD).
+func (g *Git) TagAt(name, ref string) error {
+	_, err := g.run("tag", name, ref)
+	return err
+}
+
 // TagAnnotated creates an annotated tag with the given message.
 func (g *Git) TagAnnotated(name, message string) error {
 	_, err := g.run("tag", "-a", name, "-m", message)
@@ -140,6 +146,48 @@ func (g *Git) LatestTag(prefix string) (string, error) {
 	})
 	latest := versions[len(versions)-1]
 	return tagMap[latest.String()], nil
+}
+
+// LatestTagOnBranch finds the highest semver tag matching the given prefix
+// that is reachable from ref (i.e. an ancestor of ref). This prevents
+// off-branch tags (e.g. an unmerged hotfix tag) from being picked up.
+func (g *Git) LatestTagOnBranch(prefix, ref string) (string, error) {
+	out, err := g.run("tag", "-l", prefix+"*", "--merged", ref)
+	if err != nil {
+		return "", err
+	}
+	if out == "" {
+		return "", fmt.Errorf("no tags found matching %s* reachable from %s", prefix, ref)
+	}
+	tags := strings.Split(out, "\n")
+	var versions []version.Version
+	tagMap := make(map[string]string)
+	for _, tag := range tags {
+		v, err := version.Parse(strings.TrimPrefix(tag, prefix))
+		if err != nil {
+			continue
+		}
+		versions = append(versions, v)
+		tagMap[v.String()] = tag
+	}
+	if len(versions) == 0 {
+		return "", fmt.Errorf("no valid semver tags found matching %s* reachable from %s", prefix, ref)
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].LessThan(versions[j])
+	})
+	latest := versions[len(versions)-1]
+	return tagMap[latest.String()], nil
+}
+
+// TagExistsOnRemote checks whether a tag has been pushed to origin.
+// Returns false for local-only tags that were never published.
+func (g *Git) TagExistsOnRemote(tag string) (bool, error) {
+	out, err := g.run("ls-remote", "--tags", "origin", tag)
+	if err != nil {
+		return false, err
+	}
+	return out != "", nil
 }
 
 // Fetch downloads objects and refs from origin.
@@ -190,4 +238,67 @@ func (g *Git) CommitsAheadBehind(branch, base string) (ahead, behind int, err er
 	}
 	_, err = fmt.Sscanf(out, "%d\t%d", &behind, &ahead)
 	return ahead, behind, err
+}
+
+// RevParse resolves a ref (branch, tag, HEAD, etc.) to its commit SHA.
+func (g *Git) RevParse(ref string) (string, error) {
+	return g.run("rev-parse", ref)
+}
+
+// MergeBase returns the best common ancestor commit between two refs.
+func (g *Git) MergeBase(a, b string) (string, error) {
+	return g.run("merge-base", a, b)
+}
+
+// CommitCount returns the number of commits reachable from head but not from base.
+func (g *Git) CommitCount(base, head string) (int, error) {
+	out, err := g.run("rev-list", "--count", base+".."+head)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	if _, err := fmt.Sscanf(out, "%d", &n); err != nil {
+		return 0, fmt.Errorf("could not parse commit count: %w", err)
+	}
+	return n, nil
+}
+
+// HasCherryPickedCommits checks whether any commits in base..head have
+// equivalent patches (by git patch-id) on the upstream branch. Returns true
+// if cherry-picked commits are detected. Uses "git cherry" which compares
+// symmetric patch-ids: a "-" prefix means the commit exists on upstream.
+func (g *Git) HasCherryPickedCommits(upstream, head, base string) (bool, error) {
+	out, err := g.run("cherry", upstream, head, base)
+	if err != nil {
+		return false, err
+	}
+	if out == "" {
+		return false, nil
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "- ") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ResetSoft moves HEAD to the given ref while keeping all changes staged.
+func (g *Git) ResetSoft(ref string) error {
+	_, err := g.run("reset", "--soft", ref)
+	return err
+}
+
+// CommitWithMessage creates a commit with the given message from staged changes.
+func (g *Git) CommitWithMessage(msg string) error {
+	_, err := g.run("commit", "-m", msg)
+	return err
+}
+
+// ForcePush force-pushes the given branch to origin, overwriting remote history.
+// Uses --force-with-lease to reject the push if the remote ref has changed since
+// the last fetch, preventing silent overwrites of collaborator work.
+func (g *Git) ForcePush(branch string) error {
+	_, err := g.run("push", "--force-with-lease", "origin", branch)
+	return err
 }

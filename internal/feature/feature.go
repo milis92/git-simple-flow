@@ -5,6 +5,7 @@ package feature
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -232,11 +233,16 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		defs[0].Label = "Check CI (skipped)"
 	}
 
-	wf := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force)
+	var merged bool
+	wf := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged)
 	if err := s.RunProgress("git sf feature finish", branch, defs, wf); err != nil {
 		return err
 	}
 
+	if !merged {
+		s.UI.Warning("PR is queued or pending — re-run 'git sf feature finish' after merge completes")
+		return nil
+	}
 	s.UI.Result("Feature complete!")
 	return nil
 }
@@ -285,6 +291,14 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 
 	if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
 		return err
+	}
+
+	if err := s.GH.VerifyPRMerged(); err != nil {
+		if !errors.Is(err, gh.ErrPRNotMerged) {
+			return fmt.Errorf("post-merge verification failed: %w", err)
+		}
+		s.UI.Warning("PR is queued or pending — re-run 'git sf feature finish' after merge completes")
+		return nil
 	}
 	s.UI.Success("Merged PR #" + fmt.Sprint(pr.Number))
 

@@ -264,6 +264,33 @@ exit 1
 	}
 }
 
+func TestMergePRWithMessagePassesFlags(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  case "$*" in
+    *--merge*) ;;
+    *) echo "missing --merge flag in: $*" >&2; exit 1 ;;
+  esac
+  case "$*" in
+    *--subject*) ;;
+    *) echo "missing --subject flag in: $*" >&2; exit 1 ;;
+  esac
+  case "$*" in
+    *--body*) ;;
+    *) echo "missing --body flag in: $*" >&2; exit 1 ;;
+  esac
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	if err := client.MergePRWithMessage("merge", "Merge hotfix v1.2.4", "", ""); err != nil {
+		t.Fatalf("MergePRWithMessage() error = %v", err)
+	}
+}
+
 func installFakeGH(t *testing.T, script string) {
 	t.Helper()
 

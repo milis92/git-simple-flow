@@ -38,7 +38,7 @@ digraph {
 - `start` creates the branch only; `--draft-pr` is optional.
 - `publish` after commits — title auto-derived; override with `--title`/`--body`.
 - `finish`/`discard`/`release` have built-in prompts — do NOT double-ask.
-- Hotfix: `git sf hotfix finish --release` auto-tags patch. `hotfix_auto_release: true` config does the same.
+- Hotfix: `git sf hotfix finish --release` squashes the branch, tags the squashed commit with the next patch version, force-pushes, then merges via merge commit. The tag lives on the hotfix branch (not on main HEAD). `hotfix_auto_release: true` config does the same.
 - Run `git sf release` only on explicit user request. First release creates `v0.1.0` regardless of scope.
 - First-time setup: `git sf init [--force]`. Debug: `git sf config`.
 

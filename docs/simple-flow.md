@@ -15,8 +15,9 @@ You work on feature branches, merge back to `main`, and tag a release when you a
   <img alt="Simple Flow overview — features branch from main, releases are tags, hotfixes branch from tags" src="simple-flow-diagram.svg" width="820">
 </p>
 
-All work branches from `main`. Releases are tags on `main`. Hotfixes branch from the latest release tag, merge back to `main`,
-and get their own patch tag. There are no long-lived branches other than `main`.
+All work branches from `main`. Releases are tags on `main`. Hotfixes branch from the latest release tag — the patch tag
+is placed on the hotfix branch before merging back to `main`, so it never includes unreleased work. There are no
+long-lived branches other than `main`.
 
 ## Core Principles
 
@@ -24,8 +25,8 @@ and get their own patch tag. There are no long-lived branches other than `main`.
 - **Tags are releases** — A release is a semver tag on `main`, not a branch. Nothing to maintain after the fact.
 - **Versioning is built in** — Every release gets `v<major>.<minor>.<patch>`. The version lives in git tags, not in a
   file you have to bump manually.
-- **Hotfixes branch from tags** — Branch from the release tag, fix, merge back to `main`, tag a patch release. The fix
-  contains only released code plus the change.
+- **Hotfixes branch from tags** — Branch from the release tag, fix, squash, tag the branch, and merge back to `main`.
+  The release tag lives on the hotfix branch — it contains only released code plus the fix.
 - **`main` is latest, tags are stable** — The tip of `main` always contains the newest work — think of it as a rolling
   "latest" channel. Tags mark the points you have explicitly blessed as stable. This separation lets you deploy and test
   from `main` without affecting users on the tagged release.
@@ -114,11 +115,20 @@ and get their own patch tag. There are no long-lived branches other than `main`.
    git sf hotfix publish
    ```
 
-4. **Finish with a release.** Merges the PR, switches to `main`, deletes the branch, and auto-tags a patch release.
-   The `--release` flag (or [`hotfix_auto_release`](../README.md#configuration) in config) handles the patch bump automatically.
+4. **Finish with a release.** Squashes the branch to a single commit, tags it with the next patch version, force-pushes,
+   then merges the PR into `main` via a merge commit. The tag lives on the hotfix branch — it contains only released code
+   plus the fix. The `--release` flag (or [`hotfix_auto_release`](../README.md#configuration) in config) handles this automatically.
 
    ```bash
    git sf hotfix finish --release
+   ```
+
+   The resulting git graph:
+
+   ```
+   (v1.2.3) A --- B --- C --- M (main)     ← merge commit
+                   \           /
+                    `-- D (v1.2.4)'         ← squashed hotfix commit
    ```
 
 > [!TIP]
@@ -127,8 +137,9 @@ and get their own patch tag. There are no long-lived branches other than `main`.
 > **Check your progress** at any time with `git sf status` to see your branch, PR, and CI state.
 
 > [!IMPORTANT]
-> **Key point:** The hotfix branches from the *tag*, not from `main`. This guarantees the hotfix contains only released
-> code plus the fix — no unreleased feature work leaks in.
+> **Key point:** The hotfix branches from the *tag*, not from `main`, and the release tag is placed on the hotfix branch
+> before merging. This guarantees the tag contains only released code plus the fix — no unreleased feature work leaks in.
+> `git log --first-parent main` shows a clean linear history of merge commits.
 
 ### Release Workflow
 
@@ -223,8 +234,10 @@ jobs:
 
 ### Hotfix fast path
 
-When a hotfix merges with `--release`, the patch tag is created immediately. This means the hotfix goes from dev →
-beta → production in a single `git sf hotfix finish --release`, and your CI handles each stage automatically.
+When a hotfix finishes with `--release`, the branch is squashed to a single commit, tagged with the next patch version,
+and force-pushed before merging into `main`. The tag push triggers the production release immediately — before the merge
+to `main` even happens. This means the hotfix goes from dev → production in seconds, and the subsequent merge to `main`
+triggers the beta/RC channel. Your CI handles each stage automatically.
 
 ## Edge Cases
 

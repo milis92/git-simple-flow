@@ -83,6 +83,7 @@ Ran all 5 scenarios as subagents WITH the skill loaded.
 - Used `git sf hotfix start fix-payment-null-pointer`
 - Used `git sf hotfix publish` and `git sf hotfix finish --release`
 - Used raw git for commits (correct)
+- Note: `--release` squash-tag-merges the branch (squash → force push → tag → push tag → merge commit)
 
 ### Scenario C — PASS
 - Used `git sf feature publish` then `git sf feature finish` (correct)

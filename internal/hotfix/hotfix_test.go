@@ -318,6 +318,69 @@ func installChecksGH(t *testing.T, checksJSON string) {
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }
 
+func initHotfixRepoWithRemoteAndTag(t *testing.T) string {
+	t.Helper()
+
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "tag", "v1.0.0")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "push", "origin", "v1.0.0")
+	runGit(t, repoDir, "checkout", "-b", "hotfix/test")
+	runGit(t, repoDir, "push", "-u", "origin", "hotfix/test")
+
+	return repoDir
+}
+
+func installReleaseGH(t *testing.T, orderLog string) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	mergedMarker := filepath.Join(binDir, "merged")
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+log() { echo "$*" >> "` + orderLog + `"; }
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  if [ -f "` + mergedMarker + `" ]; then
+    echo '{"number":1,"title":"Fix crash","state":"MERGED","url":"https://example.com/pr/1","isDraft":false}'
+  else
+    echo '{"number":1,"title":"Fix crash","state":"OPEN","url":"https://example.com/pr/1","isDraft":false}'
+  fi
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  touch "` + mergedMarker + `"
+  log "merge $3"
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 
@@ -329,4 +392,193 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	}
 
 	return strings.TrimSpace(string(out))
+}
+
+func TestFinishClassicNonReleaseUsesConfiguredStrategy(t *testing.T) {
+	repoDir := initHotfixRepoWithRemoteAndTag(t)
+	orderLog := filepath.Join(t.TempDir(), "order.log")
+	installReleaseGH(t, orderLog)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.Interactive = false
+	u.AutoConfirm = true
+
+	cfg := config.Defaults()
+	cfg.MergeStrategy = "squash"
+
+	svc := &Service{
+		Git:            git.New(r, repoDir),
+		GH:             gh.New(r),
+		UI:             u,
+		Config:         cfg,
+		RunTitlePrompt: ui.RunTitlePrompt,
+		RunProgress:    ui.RunProgress,
+	}
+
+	// Add a commit on the hotfix branch and push
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	err := svc.Finish(FinishOpts{Release: false})
+	if err != nil {
+		t.Fatalf("Finish() error = %v", err)
+	}
+
+	// Verify gh pr merge was called with --squash (not --merge)
+	orderBytes, err := os.ReadFile(orderLog)
+	if err != nil {
+		t.Fatalf("ReadFile(order.log) error = %v", err)
+	}
+	order := string(orderBytes)
+	if !strings.Contains(order, "merge --squash") {
+		t.Errorf("expected --squash strategy in gh commands, got: %s", order)
+	}
+
+	// Verify no new tags were created
+	tags := runGit(t, repoDir, "tag", "-l", "v1.0.1")
+	if tags != "" {
+		t.Errorf("expected no v1.0.1 tag, got %q", tags)
+	}
+
+	// Verify output says "Done." not "Hotfix released"
+	if strings.Contains(out.String(), "released") {
+		t.Errorf("output should not mention release: %q", out.String())
+	}
+}
+
+func TestStartIgnoresOffMainHotfixTag(t *testing.T) {
+	// Set up a repo with a remote, v1.0.0 on main, and an off-main v1.0.1.
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v1.0.0")
+	runGit(t, repoDir, "push", "origin", "v1.0.0")
+
+	// Create off-main hotfix tag v1.0.1.
+	runGit(t, repoDir, "checkout", "-b", "hotfix/old")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("old fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "old hotfix")
+	runGit(t, repoDir, "tag", "v1.0.1")
+	runGit(t, repoDir, "push", "origin", "v1.0.1")
+
+	// Switch to main for hotfix start.
+	runGit(t, repoDir, "checkout", "main")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Start("new-fix", StartOpts{}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// The new hotfix should be based on v1.0.0 (on main), not v1.0.1 (off-main).
+	// v1.0.0 is the init commit; the parent of the new branch should be that commit.
+	v100SHA := runGit(t, repoDir, "rev-parse", "v1.0.0^{commit}")
+	headParent := runGit(t, repoDir, "rev-parse", "HEAD")
+	if headParent != v100SHA {
+		t.Fatalf("hotfix branched from %s, want %s (v1.0.0, not v1.0.1)", headParent, v100SHA)
+	}
+}
+
+func TestFinishClassicReleaseSquashesTagsMerges(t *testing.T) {
+	repoDir := initHotfixRepoWithRemoteAndTag(t)
+	orderLog := filepath.Join(t.TempDir(), "order.log")
+	installReleaseGH(t, orderLog)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.Interactive = false
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:            git.New(r, repoDir),
+		GH:             gh.New(r),
+		UI:             u,
+		Config:         config.Defaults(),
+		RunTitlePrompt: ui.RunTitlePrompt,
+		RunProgress:    ui.RunProgress,
+	}
+
+	// Add two commits on the hotfix branch
+	if err := os.WriteFile(filepath.Join(repoDir, "fix1.txt"), []byte("fix1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "wip: first attempt")
+	if err := os.WriteFile(filepath.Join(repoDir, "fix2.txt"), []byte("fix2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "wip: second attempt")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err != nil {
+		t.Fatalf("Finish() error = %v", err)
+	}
+
+	// Verify squash: hotfix branch should have exactly 1 commit beyond the tag
+	commitCount := runGit(t, repoDir, "rev-list", "--count", "v1.0.0..v1.0.1")
+	if commitCount != "1" {
+		t.Errorf("commits between tags = %q, want 1 (squashed)", commitCount)
+	}
+
+	// Verify tag v1.0.1 exists
+	tags := runGit(t, repoDir, "tag", "-l", "v1.0.1")
+	if tags != "v1.0.1" {
+		t.Errorf("expected tag v1.0.1, got %q", tags)
+	}
+
+	// Verify the squashed commit message starts with "hotfix:"
+	msg := runGit(t, repoDir, "log", "-1", "--format=%s", "v1.0.1")
+	if !strings.HasPrefix(msg, "hotfix:") {
+		t.Errorf("squashed commit message = %q, want prefix 'hotfix:'", msg)
+	}
+
+	// Verify gh pr merge was called with --merge strategy
+	orderBytes, err := os.ReadFile(orderLog)
+	if err != nil {
+		t.Fatalf("ReadFile(order.log) error = %v", err)
+	}
+	order := string(orderBytes)
+	if !strings.Contains(order, "merge --merge") {
+		t.Errorf("expected --merge strategy in gh commands, got: %s", order)
+	}
+
+	// Verify output mentions the released tag
+	if !strings.Contains(out.String(), "v1.0.1") {
+		t.Errorf("output = %q, want mention of v1.0.1", out.String())
+	}
 }
