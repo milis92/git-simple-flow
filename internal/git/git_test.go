@@ -14,7 +14,7 @@ func setupTestRepo(t *testing.T) string {
 	dir := t.TempDir()
 	r := runner.NewRunner(false, false)
 	cmds := [][]string{
-		{"git", "-C", dir, "init"},
+		{"git", "-C", dir, "init", "-b", "main"},
 		{"git", "-C", dir, "config", "user.email", "test@test.com"},
 		{"git", "-C", dir, "config", "user.name", "Test"},
 	}
@@ -145,12 +145,8 @@ func TestLatestTagOnBranch(t *testing.T) {
 
 	// Switch back to main. Global LatestTag sees v1.0.1, but
 	// LatestTagOnBranch scoped to main should see only v1.0.0.
-	defaultBranch, _ := r.Run("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err := g.Checkout("main"); err != nil {
-		// Fallback for repos where default branch is "master"
-		if err := g.Checkout(defaultBranch); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
 	}
 
 	globalTag, err := g.LatestTag("v")
@@ -181,12 +177,6 @@ func TestMergeBase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Get the default branch name (may be "main" or "master" depending on git config)
-	defaultBranch, err := g.CurrentBranch()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// Create a branch and add a commit
 	if err := g.CreateBranch("hotfix/test"); err != nil {
 		t.Fatal(err)
@@ -201,7 +191,7 @@ func TestMergeBase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	base, err := g.MergeBase(defaultBranch, "HEAD")
+	base, err := g.MergeBase("main", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}

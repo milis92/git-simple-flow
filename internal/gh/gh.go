@@ -125,6 +125,25 @@ func (g *GH) VerifyPRMerged() error {
 	return nil
 }
 
+// GetPRHeadSHA returns the head ref OID (commit SHA) of the current branch's PR.
+// This is the immutable SHA that GitHub recorded as the PR head at merge time.
+func (g *GH) GetPRHeadSHA() (string, error) {
+	out, err := g.runner.Run("gh", "pr", "view", "--json", "headRefOid")
+	if err != nil {
+		return "", fmt.Errorf("could not fetch PR head SHA: %w", err)
+	}
+	if out == "" {
+		return "", nil
+	}
+	var result struct {
+		HeadRefOid string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return "", fmt.Errorf("could not parse PR head SHA: %w", err)
+	}
+	return result.HeadRefOid, nil
+}
+
 // ClosePR closes the PR associated with the given branch. If reason is
 // non-empty, it is posted as a comment before closing.
 func (g *GH) ClosePR(branch, reason string) error {

@@ -16,6 +16,88 @@ import (
 	"github.com/milis92/git-simple-flow/internal/ui"
 )
 
+func TestFinishRejectsNonHotfixBranch(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleaseGH(t)
+
+	// Switch to a feature branch (not a hotfix branch).
+	runGit(t, repoDir, "checkout", "-b", "feature/not-a-hotfix")
+	if err := os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feat\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "feature work")
+	runGit(t, repoDir, "push", "-u", "origin", "feature/not-a-hotfix")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error for non-hotfix branch")
+	}
+	if !strings.Contains(err.Error(), "not on a hotfix branch") {
+		t.Fatalf("Finish() error = %q, want 'not on a hotfix branch'", err.Error())
+	}
+}
+
+func TestStartRejectsUnpushedLocalTag(t *testing.T) {
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.1.0")
+	runGit(t, repoDir, "push", "origin", "v0.1.0")
+
+	// Add a commit on main and create a local-only tag v0.2.0 (never pushed).
+	if err := os.WriteFile(filepath.Join(repoDir, "local.txt"), []byte("local\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "local only")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.2.0") // local only — NOT pushed
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Start("new-fix", StartOpts{})
+	if err == nil {
+		t.Fatal("Start() error = nil, want error for unpushed local tag v0.2.0")
+	}
+	if !strings.Contains(err.Error(), "not on origin") {
+		t.Fatalf("Start() error = %q, want 'not on origin' message", err.Error())
+	}
+}
+
 func TestFinishInteractiveReleasePrintsReleasedTag(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	installFinishReleaseGH(t)
@@ -258,6 +340,59 @@ func TestFinishReleaseDoesNotTagUnreleasedMainChanges(t *testing.T) {
 		if strings.Contains(tree, "unreleased.txt") {
 			t.Fatalf("release tag v0.1.1 includes unreleased main content: %q", tree)
 		}
+	}
+}
+
+func TestFinishReleaseRejectsCherryPickedMainCommits(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	installFinishReleaseGH(t)
+
+	// Push an unreleased commit to origin/main.
+	pusherParent := t.TempDir()
+	pusherDir := filepath.Join(pusherParent, "pusher")
+	runGit(t, pusherParent, "clone", bareDir, "pusher")
+	runGit(t, pusherDir, "config", "user.name", "Pusher")
+	runGit(t, pusherDir, "config", "user.email", "pusher@example.com")
+	if err := os.WriteFile(filepath.Join(pusherDir, "unreleased.txt"), []byte("unreleased\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, pusherDir, "add", ".")
+	runGit(t, pusherDir, "commit", "-m", "unreleased feature")
+	runGit(t, pusherDir, "push", "origin", "main")
+
+	// Cherry-pick that commit onto the hotfix branch.
+	runGit(t, repoDir, "fetch", "origin")
+	cherryCommit := runGit(t, repoDir, "rev-parse", "origin/main")
+	runGit(t, repoDir, "cherry-pick", cherryCommit)
+
+	// Add a legitimate hotfix commit too.
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "hotfix change")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error due to cherry-picked unreleased main commit")
+	}
+	if !strings.Contains(err.Error(), "cherry-picked") {
+		t.Fatalf("Finish() error = %q, want cherry-pick detection message", err.Error())
 	}
 }
 
@@ -537,7 +672,7 @@ func TestFinishReleaseDoesNotPublishTagWhenPRQueued(t *testing.T) {
 func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
-	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
 
 	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -563,6 +698,12 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 		t.Fatalf("first Finish() error = %v, want queued merge to succeed without tag", err)
 	}
 
+	// Record the squashed HEAD — this is the commit the retry must tag.
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "hotfix/test" {
 		t.Fatalf("after queued release, HEAD = %q, want hotfix branch kept for later cleanup", current)
 	}
@@ -578,7 +719,7 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 	runGit(t, mergerDir, "push", "origin", "main")
 
 	// Mark the PR as merged so the gh stub reports MERGED state.
-	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -602,6 +743,344 @@ func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
 		if branch == "hotfix/test" {
 			t.Fatalf("expected hotfix branch to be deleted on retry cleanup, branches=%v", branches)
 		}
+	}
+}
+
+func TestStartFetchesBeforeTagLookup(t *testing.T) {
+	// Set up repo with v0.1.0 on main. Then from a second clone push v0.2.0
+	// to main so the first clone's local main is stale.
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.1.0")
+	runGit(t, repoDir, "push", "origin", "v0.1.0")
+
+	// Second clone pushes v0.2.0 on main.
+	pusherDir := filepath.Join(t.TempDir(), "pusher")
+	runGit(t, t.TempDir(), "clone", bareDir, pusherDir)
+	runGit(t, pusherDir, "config", "user.name", "Pusher")
+	runGit(t, pusherDir, "config", "user.email", "pusher@example.com")
+	if err := os.WriteFile(filepath.Join(pusherDir, "feature.txt"), []byte("feat\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, pusherDir, "add", ".")
+	runGit(t, pusherDir, "commit", "-m", "feature")
+	runGit(t, pusherDir, "push", "origin", "main")
+	runGit(t, pusherDir, "tag", "v0.2.0")
+	runGit(t, pusherDir, "push", "origin", "v0.2.0")
+
+	// First clone's local main is still at v0.1.0. Start should fetch and
+	// pick up v0.2.0 from origin/main.
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Start("new-fix", StartOpts{}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Should be based on v0.2.0 (from origin/main), not v0.1.0 (stale local main).
+	v200SHA := runGit(t, repoDir, "rev-parse", "v0.2.0^{commit}")
+	headSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if headSHA != v200SHA {
+		t.Fatalf("hotfix branched from %s, want %s (v0.2.0)", headSHA, v200SHA)
+	}
+}
+
+func TestFinishReleaseRetryAfterBranchAutoDeleted(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	// First run: PR is queued.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate: merge queue completes AND GitHub auto-deletes the branch.
+	mergerDir := filepath.Join(t.TempDir(), "merger")
+	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+	runGit(t, mergerDir, "push", "origin", "--delete", "hotfix/test")
+
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry: should succeed despite remote branch being gone.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v, want success after branch auto-delete", err)
+	}
+
+	tags := runGit(t, repoDir, "tag", "-l", "v0.1.1")
+	if tags != "v0.1.1" {
+		t.Fatalf("expected tag v0.1.1, got %q", tags)
+	}
+}
+
+func TestFinishReleaseRetryUsesCorrectVersionAfterNewRelease(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	// First run: PR is queued.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Between runs, someone releases v0.2.0 on main.
+	releaserDir := filepath.Join(t.TempDir(), "releaser")
+	runGit(t, t.TempDir(), "clone", bareDir, releaserDir)
+	runGit(t, releaserDir, "config", "user.name", "Releaser")
+	runGit(t, releaserDir, "config", "user.email", "releaser@example.com")
+	if err := os.WriteFile(filepath.Join(releaserDir, "feature.txt"), []byte("feat\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, releaserDir, "add", ".")
+	runGit(t, releaserDir, "commit", "-m", "new feature")
+	runGit(t, releaserDir, "push", "origin", "main")
+	runGit(t, releaserDir, "tag", "v0.2.0")
+	runGit(t, releaserDir, "push", "origin", "v0.2.0")
+
+	// Merge the hotfix into main (simulating queue completion).
+	runGit(t, releaserDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, releaserDir, "push", "origin", "main")
+
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry: should create v0.1.1 (patch of v0.1.0 base), NOT v0.2.1.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v", err)
+	}
+
+	if tags := runGit(t, repoDir, "tag", "-l", "v0.2.1"); tags == "v0.2.1" {
+		t.Fatalf("retry created v0.2.1 (wrong version — bumped from v0.2.0 on main instead of v0.1.0 base)")
+	}
+	if tags := runGit(t, repoDir, "tag", "-l", "v0.1.1"); tags != "v0.1.1" {
+		t.Fatalf("expected tag v0.1.1, got %q", tags)
+	}
+}
+
+func TestFinishReleaseRetryTagsMergedCommitNotLocalHEAD(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	// First run: PR is queued.
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v", err)
+	}
+
+	// Record the squashed SHA — this is the commit that was merged.
+	squashedSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(squashedSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Someone pushes an extra commit AFTER the merge — local HEAD moves.
+	if err := os.WriteFile(filepath.Join(repoDir, "extra.txt"), []byte("extra\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "extra commit after merge")
+
+	extraSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if extraSHA == squashedSHA {
+		t.Fatal("test setup failed: extra commit should move HEAD")
+	}
+
+	// Simulate merge queue completion.
+	mergerDir := filepath.Join(t.TempDir(), "merger")
+	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry: tag should point to the merged commit (squashedSHA), not local HEAD (extraSHA).
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v", err)
+	}
+
+	tagSHA := runGit(t, repoDir, "rev-parse", "v0.1.1^{commit}")
+	if tagSHA != squashedSHA {
+		t.Fatalf("v0.1.1 points to %s, want %s (the merged commit, not local HEAD)", tagSHA, squashedSHA)
+	}
+	if tagSHA == extraSHA {
+		t.Fatalf("v0.1.1 points to the extra commit — retry tagged local HEAD instead of the merged commit")
+	}
+}
+
+func TestFinishReleaseRetryRepushesExistingLocalTag(t *testing.T) {
+	// Scenario: first run merged the PR and created the local tag v0.1.1
+	// but PushTag failed. The retry must push the existing local tag
+	// instead of silently skipping it.
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	// Record the fix commit SHA — this is the commit the retry must tag.
+	fixSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(fixSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate: the merge completed remotely.
+	mergerDir := filepath.Join(t.TempDir(), "merger")
+	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+
+	// Simulate the partial first-run state: tag exists locally but NOT pushed.
+	runGit(t, repoDir, "tag", "v0.1.1", fixSHA)
+	// Verify tag is NOT on remote yet.
+	remoteTags := runGit(t, repoDir, "ls-remote", "--tags", "origin", "v0.1.1")
+	if remoteTags != "" {
+		t.Fatalf("setup: v0.1.1 should not be on remote yet, got %q", remoteTags)
+	}
+
+	// Mark PR as merged so the retry path is taken.
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v, want success when local tag exists but push previously failed", err)
+	}
+
+	// Tag must now be on the remote.
+	remoteTags = runGit(t, repoDir, "ls-remote", "--tags", "origin", "v0.1.1")
+	if !strings.Contains(remoteTags, "v0.1.1") {
+		t.Fatalf("v0.1.1 was not pushed to remote; retry skipped PushTag for existing local tag")
+	}
+
+	// Tag must point to the fix commit.
+	tagSHA := runGit(t, repoDir, "rev-parse", "v0.1.1^{commit}")
+	if tagSHA != fixSHA {
+		t.Fatalf("v0.1.1 points to %s, want %s", tagSHA, fixSHA)
 	}
 }
 
@@ -1030,11 +1509,24 @@ exit 1
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }
 
+// queuedMergedGHFiles holds file paths returned by installFinishReleaseQueuedThenMergedGH.
+type queuedMergedGHFiles struct {
+	mergedMarker string
+	headSHAFile  string
+}
+
 func installFinishReleaseQueuedThenMergedGH(t *testing.T) string {
+	t.Helper()
+	f := installFinishReleaseQueuedThenMergedGHWithHead(t)
+	return f.mergedMarker
+}
+
+func installFinishReleaseQueuedThenMergedGHWithHead(t *testing.T) queuedMergedGHFiles {
 	t.Helper()
 
 	binDir := t.TempDir()
 	mergedMarker := filepath.Join(binDir, "merged")
+	headSHAFile := filepath.Join(binDir, "head_sha")
 	ghPath := filepath.Join(binDir, "gh")
 	script := `#!/bin/sh
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
@@ -1053,6 +1545,15 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "state" ]; then
     echo '{"state":"MERGED"}'
   else
     echo '{"state":"OPEN"}'
+  fi
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "headRefOid" ]; then
+  if [ -f "` + headSHAFile + `" ]; then
+    sha=$(cat "` + headSHAFile + `")
+    echo "{\"headRefOid\":\"$sha\"}"
+  else
+    echo '{"headRefOid":""}'
   fi
   exit 0
 fi
@@ -1075,5 +1576,5 @@ exit 1
 	}
 
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
-	return mergedMarker
+	return queuedMergedGHFiles{mergedMarker: mergedMarker, headSHAFile: headSHAFile}
 }

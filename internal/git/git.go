@@ -97,6 +97,12 @@ func (g *Git) Tag(name string) error {
 	return err
 }
 
+// TagAt creates a lightweight tag at a specific commit (not necessarily HEAD).
+func (g *Git) TagAt(name, ref string) error {
+	_, err := g.run("tag", name, ref)
+	return err
+}
+
 // TagAnnotated creates an annotated tag with the given message.
 func (g *Git) TagAnnotated(name, message string) error {
 	_, err := g.run("tag", "-a", name, "-m", message)
@@ -174,6 +180,16 @@ func (g *Git) LatestTagOnBranch(prefix, ref string) (string, error) {
 	return tagMap[latest.String()], nil
 }
 
+// TagExistsOnRemote checks whether a tag has been pushed to origin.
+// Returns false for local-only tags that were never published.
+func (g *Git) TagExistsOnRemote(tag string) (bool, error) {
+	out, err := g.run("ls-remote", "--tags", "origin", tag)
+	if err != nil {
+		return false, err
+	}
+	return out != "", nil
+}
+
 // Fetch downloads objects and refs from origin.
 func (g *Git) Fetch() error {
 	_, err := g.run("fetch", "origin")
@@ -245,6 +261,26 @@ func (g *Git) CommitCount(base, head string) (int, error) {
 		return 0, fmt.Errorf("could not parse commit count: %w", err)
 	}
 	return n, nil
+}
+
+// HasCherryPickedCommits checks whether any commits in base..head have
+// equivalent patches (by git patch-id) on the upstream branch. Returns true
+// if cherry-picked commits are detected. Uses "git cherry" which compares
+// symmetric patch-ids: a "-" prefix means the commit exists on upstream.
+func (g *Git) HasCherryPickedCommits(upstream, head, base string) (bool, error) {
+	out, err := g.run("cherry", upstream, head, base)
+	if err != nil {
+		return false, err
+	}
+	if out == "" {
+		return false, nil
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "- ") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ResetSoft moves HEAD to the given ref while keeping all changes staged.

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,6 +16,7 @@ func FinishStepDefs(mainBranch string) []ui.StepDef {
 	return []ui.StepDef{
 		{Label: "Check CI"},
 		{Label: "Merge PR"},
+		{Label: "Verify merge"},
 		{Label: "Switch to " + mainBranch},
 		{Label: "Pull latest"},
 		{Label: "Delete local branch"},
@@ -25,7 +27,7 @@ func FinishStepDefs(mainBranch string) []ui.StepDef {
 // FinishWorkflow returns a workflow function that checks CI, merges the PR,
 // switches to main, pulls, and cleans up local/remote branches.
 // The returned function can be composed with additional steps by wrapping it.
-func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy string, force bool) func(context.Context, ui.StepCallbacks) error {
+func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy string, force bool, merged *bool) func(context.Context, ui.StepCallbacks) error {
 	return func(ctx context.Context, cb ui.StepCallbacks) error {
 		ctxGit := g.WithContext(ctx)
 		ctxGH := ghCli.WithContext(ctx)
@@ -60,6 +62,29 @@ func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy 
 		if err := cb.Run(func() error { return ctxGH.MergePR(mergeStrategy) }); err != nil {
 			return err
 		}
+
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// Verify merge — guard against gh returning success for auto-merge
+		// enablement or merge queue additions.
+		cb.Start()
+		if err := ctxGH.ForQuery().VerifyPRMerged(); err != nil {
+			if !errors.Is(err, gh.ErrPRNotMerged) {
+				cb.Fail(fmt.Sprintf("post-merge verification failed: %s", err))
+				return fmt.Errorf("post-merge verification failed: %w", err)
+			}
+			// PR is queued — skip cleanup steps
+			cb.SkipStep("PR queued — waiting")
+			for range 4 {
+				cb.Start()
+				cb.SkipStep("PR queued — skipped")
+			}
+			return nil
+		}
+		cb.Done()
+		*merged = true
 
 		if ctx.Err() != nil {
 			return ctx.Err()
