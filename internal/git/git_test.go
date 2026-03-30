@@ -127,6 +127,12 @@ func TestMergeBase(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get the default branch name (may be "main" or "master" depending on git config)
+	defaultBranch, err := g.CurrentBranch()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Create a branch and add a commit
 	if err := g.CreateBranch("hotfix/test"); err != nil {
 		t.Fatal(err)
@@ -141,7 +147,7 @@ func TestMergeBase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	base, err := g.MergeBase("main", "HEAD")
+	base, err := g.MergeBase(defaultBranch, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
