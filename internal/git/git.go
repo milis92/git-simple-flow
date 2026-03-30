@@ -180,6 +180,16 @@ func (g *Git) LatestTagOnBranch(prefix, ref string) (string, error) {
 	return tagMap[latest.String()], nil
 }
 
+// TagExistsOnRemote checks whether a tag has been pushed to origin.
+// Returns false for local-only tags that were never published.
+func (g *Git) TagExistsOnRemote(tag string) (bool, error) {
+	out, err := g.run("ls-remote", "--tags", "origin", tag)
+	if err != nil {
+		return false, err
+	}
+	return out != "", nil
+}
+
 // Fetch downloads objects and refs from origin.
 func (g *Git) Fetch() error {
 	_, err := g.run("fetch", "origin")

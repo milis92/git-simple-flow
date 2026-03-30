@@ -16,6 +16,88 @@ import (
 	"github.com/milis92/git-simple-flow/internal/ui"
 )
 
+func TestFinishRejectsNonHotfixBranch(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleaseGH(t)
+
+	// Switch to a feature branch (not a hotfix branch).
+	runGit(t, repoDir, "checkout", "-b", "feature/not-a-hotfix")
+	if err := os.WriteFile(filepath.Join(repoDir, "feature.txt"), []byte("feat\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "feature work")
+	runGit(t, repoDir, "push", "-u", "origin", "feature/not-a-hotfix")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatal("Finish() error = nil, want error for non-hotfix branch")
+	}
+	if !strings.Contains(err.Error(), "not on a hotfix branch") {
+		t.Fatalf("Finish() error = %q, want 'not on a hotfix branch'", err.Error())
+	}
+}
+
+func TestStartRejectsUnpushedLocalTag(t *testing.T) {
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.1.0")
+	runGit(t, repoDir, "push", "origin", "v0.1.0")
+
+	// Add a commit on main and create a local-only tag v0.2.0 (never pushed).
+	if err := os.WriteFile(filepath.Join(repoDir, "local.txt"), []byte("local\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "local only")
+	runGit(t, repoDir, "push", "origin", "main")
+	runGit(t, repoDir, "tag", "v0.2.0") // local only — NOT pushed
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Start("new-fix", StartOpts{})
+	if err == nil {
+		t.Fatal("Start() error = nil, want error for unpushed local tag v0.2.0")
+	}
+	if !strings.Contains(err.Error(), "not on origin") {
+		t.Fatalf("Start() error = %q, want 'not on origin' message", err.Error())
+	}
+}
+
 func TestFinishInteractiveReleasePrintsReleasedTag(t *testing.T) {
 	repoDir := initHotfixReleaseRepo(t)
 	installFinishReleaseGH(t)

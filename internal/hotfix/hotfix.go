@@ -72,7 +72,7 @@ func (s *Service) Start(name string, opts StartOpts) error {
 
 	// Best-effort fetch so we see the latest tags from the remote.
 	// Ignored when no remote is configured (e.g. local-only repos).
-	_ = qGit.Fetch()
+	hasRemote := qGit.Fetch() == nil
 
 	// Prefer origin/main for fresh tag data; fall back to local main
 	// when no remote is configured.
@@ -82,6 +82,18 @@ func (s *Service) Start(name string, opts StartOpts) error {
 	}
 	if err != nil {
 		return fmt.Errorf("no tags found. Create an initial release first with 'git sf release'")
+	}
+
+	// Guard against local-only tags that were never pushed. A hotfix must
+	// branch from a published release, not an unpushed local tag.
+	if hasRemote {
+		published, checkErr := qGit.TagExistsOnRemote(tag)
+		if checkErr != nil {
+			return fmt.Errorf("could not verify tag %s on remote: %w", tag, checkErr)
+		}
+		if !published {
+			return fmt.Errorf("tag %s exists locally but not on origin — push it first or use a published release", tag)
+		}
 	}
 
 	branchName := s.Config.HotfixPrefix + name
@@ -208,6 +220,10 @@ func (s *Service) Finish(opts FinishOpts) error {
 	branch, err := qGit.CurrentBranch()
 	if err != nil {
 		return err
+	}
+
+	if !strings.HasPrefix(branch, s.Config.HotfixPrefix) {
+		return fmt.Errorf("not on a hotfix branch (current: %s)", branch)
 	}
 
 	if s.UI.Interactive {
