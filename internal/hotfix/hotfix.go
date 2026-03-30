@@ -227,9 +227,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 	doRelease := opts.Release || s.Config.HotfixAutoRelease
 
 	if doRelease {
-		// Preflight: ensure local branch is current with remote
+		// Preflight: ensure local branch is current with remote.
+		// Fetch uses the normal runner (not ForQuery) so it's a no-op in dry-run.
 		qGit := s.Git.ForQuery()
-		if err := qGit.Fetch(); err != nil {
+		if err := s.Git.Fetch(); err != nil {
 			return fmt.Errorf("could not fetch: %w", err)
 		}
 		inSync, err := qGit.IsInSyncWithRemote(branch)
@@ -352,7 +353,12 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			}
 			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
 			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
-			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
+			if err := cb.Run(func() error {
+				if err := ctxGH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
+					return err
+				}
+				return ctxGH.VerifyPRMerged()
+			}); err != nil {
 				return err
 			}
 
@@ -484,8 +490,9 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		// Squash-Tag-Merge flow
 		qGit := s.Git.ForQuery()
 
-		// Safety: ensure local branch is current with remote
-		if err := qGit.Fetch(); err != nil {
+		// Safety: ensure local branch is current with remote.
+		// Fetch uses the normal runner (not ForQuery) so it's a no-op in dry-run.
+		if err := s.Git.Fetch(); err != nil {
 			return fmt.Errorf("could not fetch: %w", err)
 		}
 		inSync, err := qGit.IsInSyncWithRemote(branch)
@@ -549,6 +556,9 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		// gh pr merge enforces branch protection on the actual (post-squash) SHA.
 		mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
 		if err := s.GH.MergePRWithMessage("merge", mergeSubject, ""); err != nil {
+			return err
+		}
+		if err := s.GH.VerifyPRMerged(); err != nil {
 			return err
 		}
 		s.UI.Success("PR merged (merge)")

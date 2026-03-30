@@ -348,6 +348,7 @@ func installReleaseGH(t *testing.T, orderLog string) {
 	t.Helper()
 
 	binDir := t.TempDir()
+	mergedMarker := filepath.Join(binDir, "merged")
 	ghPath := filepath.Join(binDir, "gh")
 	script := `#!/bin/sh
 log() { echo "$*" >> "` + orderLog + `"; }
@@ -355,7 +356,11 @@ if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
-  echo '{"number":1,"title":"Fix crash","state":"OPEN","url":"https://example.com/pr/1","isDraft":false}'
+  if [ -f "` + mergedMarker + `" ]; then
+    echo '{"number":1,"title":"Fix crash","state":"MERGED","url":"https://example.com/pr/1","isDraft":false}'
+  else
+    echo '{"number":1,"title":"Fix crash","state":"OPEN","url":"https://example.com/pr/1","isDraft":false}'
+  fi
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -363,6 +368,7 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  touch "` + mergedMarker + `"
   log "merge $3"
   exit 0
 fi
