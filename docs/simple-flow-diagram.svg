@@ -32,7 +32,7 @@
   <path d="M 130 140 C 165 140, 165 75, 200 75 L 300 75 C 335 75, 335 140, 370 140"
         stroke="#3fb950" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
 
-  <!-- Hotfix branch (red) — branches from v1.0.0, merges at v1.0.1, at y=205 -->
+  <!-- Hotfix branch (red) — branches from v1.0.0, tagged v1.0.1 on branch, merges to main at y=205 -->
   <path d="M 430 140 C 465 140, 465 205, 500 205 L 600 205 C 635 205, 635 140, 670 140"
         stroke="#f97583" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
 
@@ -48,7 +48,8 @@
   <circle cx="370" cy="140" r="6" fill="#3fb950" filter="url(#glow)"/>
   <circle cx="430" cy="140" r="7" fill="#d2a8ff" filter="url(#glow)"/>
   <circle cx="530" cy="140" r="5" fill="#6e7681"/>
-  <circle cx="670" cy="140" r="7" fill="#d2a8ff" filter="url(#glow)"/>
+  <!-- Merge diamond (hotfix merge to main) -->
+  <polygon points="670,131 679,140 670,149 661,140" fill="#f97583" filter="url(#glow)"/>
   <circle cx="770" cy="140" r="6" fill="#3fb950" filter="url(#glow)"/>
   <circle cx="840" cy="140" r="7" fill="#d2a8ff" filter="url(#glow)"/>
   <circle cx="895" cy="140" r="3" fill="#484f58"/>
@@ -59,7 +60,15 @@
 
   <!-- Hotfix beads (red) -->
   <circle cx="530" cy="205" r="4" fill="#f97583" filter="url(#glow-sm)" opacity="0.9"/>
-  <circle cx="580" cy="205" r="4" fill="#f97583" filter="url(#glow-sm)" opacity="0.9"/>
+  <circle cx="580" cy="205" r="6" fill="#d2a8ff" filter="url(#glow)"/>
+
+  <!-- Release tag v1.0.1 (patch on hotfix branch) -->
+  <line x1="580" y1="183" x2="580" y2="199" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
+  <rect x="555" y="163" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
+  <text x="580" y="177" text-anchor="middle" class="tag" fill="#d2a8ff">v1.0.1</text>
+
+  <!-- Dashed line from hotfix tag to merge diamond -->
+  <line x1="605" y1="173" x2="661" y2="140" stroke="#d2a8ff" stroke-width="1" stroke-dasharray="4,3" opacity="0.35"/>
 
   <!-- Feature 2 beads (green) -->
   <circle cx="630" cy="75" r="4" fill="#3fb950" filter="url(#glow-sm)" opacity="0.9"/>
@@ -81,11 +90,6 @@
   <line x1="430" y1="122" x2="430" y2="131" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
   <rect x="405" y="102" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
   <text x="430" y="116" text-anchor="middle" class="tag" fill="#d2a8ff">v1.0.0</text>
-
-  <!-- Release tag v1.0.1 (patch at hotfix merge point) -->
-  <line x1="670" y1="122" x2="670" y2="131" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
-  <rect x="645" y="102" width="50" height="20" rx="10" fill="#d2a8ff" opacity="0.12" stroke="#d2a8ff" stroke-width="1" stroke-opacity="0.4"/>
-  <text x="670" y="116" text-anchor="middle" class="tag" fill="#d2a8ff">v1.0.1</text>
 
   <!-- Release tag v1.1.0 (minor after feature 2) -->
   <line x1="840" y1="122" x2="840" y2="131" stroke="#d2a8ff" stroke-width="1" opacity="0.5"/>
