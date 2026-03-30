@@ -32,6 +32,10 @@ if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   touch "$MERGE_MARKER"
   exit 0
 fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":1,"title":"Test","state":"MERGED","url":"https://example.com/pr/1","isDraft":false}'
+  exit 0
+fi
 echo "unexpected gh command: $*" >&2
 exit 1
 `, mergeMarker)
@@ -174,6 +178,10 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":1,"title":"Test","state":"MERGED","url":"https://example.com/pr/1","isDraft":false}'
   exit 0
 fi
 echo "unexpected gh command: $*" >&2

@@ -264,6 +264,42 @@ exit 1
 	}
 }
 
+func TestVerifyPRMergedRejectsOpenPR(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":1,"title":"Test","state":"OPEN","url":"https://example.com/pr/1","isDraft":false}'
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	err := client.VerifyPRMerged()
+	if err == nil {
+		t.Fatal("VerifyPRMerged() error = nil, want ErrPRNotMerged for OPEN PR")
+	}
+	if !errors.Is(err, ErrPRNotMerged) {
+		t.Fatalf("VerifyPRMerged() error = %v, want wrapped ErrPRNotMerged", err)
+	}
+}
+
+func TestVerifyPRMergedAcceptsMergedPR(t *testing.T) {
+	installFakeGH(t, `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"number":1,"title":"Test","state":"MERGED","url":"https://example.com/pr/1","isDraft":false}'
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`)
+
+	client := New(runner.NewRunner(false, false))
+	if err := client.VerifyPRMerged(); err != nil {
+		t.Fatalf("VerifyPRMerged() error = %v, want nil for MERGED PR", err)
+	}
+}
+
 func installFakeGH(t *testing.T, script string) {
 	t.Helper()
 

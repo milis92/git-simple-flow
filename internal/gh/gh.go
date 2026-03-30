@@ -14,6 +14,10 @@ import (
 // ErrNoPR is returned when no pull request exists for the current branch.
 var ErrNoPR = fmt.Errorf("no PR found for current branch")
 
+// ErrPRNotMerged is returned when gh pr merge succeeds but the PR is not
+// in a MERGED state (e.g. auto-merge was enabled or it entered a merge queue).
+var ErrPRNotMerged = fmt.Errorf("PR was not merged")
+
 // GH provides GitHub CLI operations. It delegates command execution to a runner.Runner.
 type GH struct {
 	runner *runner.Runner
@@ -83,6 +87,31 @@ func (g *GH) MergePR(strategy string) error {
 	args := []string{"pr", "merge", "--" + strategy}
 	_, err := g.runner.Run("gh", args...)
 	return err
+}
+
+// VerifyPRMerged checks that the current branch's PR is in MERGED state.
+// Call this after MergePR to guard against gh returning success for
+// auto-merge enablement or merge queue additions instead of an actual merge.
+// In dry-run mode this is a no-op (the merge didn't actually execute).
+func (g *GH) VerifyPRMerged() error {
+	out, err := g.runner.Run("gh", "pr", "view", "--json", "state")
+	if err != nil {
+		return fmt.Errorf("could not verify PR merge state: %w", err)
+	}
+	// In dry-run mode, Run returns empty string without executing
+	if out == "" {
+		return nil
+	}
+	var result struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return fmt.Errorf("could not parse PR state: %w", err)
+	}
+	if result.State != "MERGED" {
+		return fmt.Errorf("%w: state is %q (auto-merge or merge queue may be active); skipping cleanup", ErrPRNotMerged, result.State)
+	}
+	return nil
 }
 
 // ClosePR closes the PR associated with the given branch. If reason is

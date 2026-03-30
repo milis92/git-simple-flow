@@ -286,6 +286,9 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 	if err := s.GH.MergePR(s.Config.MergeStrategy); err != nil {
 		return err
 	}
+	if err := s.GH.VerifyPRMerged(); err != nil {
+		return err
+	}
 	s.UI.Success("Merged PR #" + fmt.Sprint(pr.Number))
 
 	if err := s.Git.Checkout(s.Config.MainBranch); err != nil {

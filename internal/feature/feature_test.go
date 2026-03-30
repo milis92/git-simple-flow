@@ -260,12 +260,17 @@ func installFinishGH(t *testing.T, mergeStartedPath, mergeDonePath string) {
 
 	binDir := t.TempDir()
 	ghPath := filepath.Join(binDir, "gh")
+	mergedMarker := filepath.Join(binDir, "merged")
 	script := `#!/bin/sh
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
-  echo '{"number":123,"title":"Feature PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  if [ -f "` + mergedMarker + `" ]; then
+    echo '{"number":123,"title":"Feature PR","state":"MERGED","url":"https://example.com/pr/123","isDraft":false}'
+  else
+    echo '{"number":123,"title":"Feature PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  fi
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -277,6 +282,7 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  touch "` + mergedMarker + `"
   exec env GO_WANT_FEATURE_HELPER_PROCESS=1 MERGE_STARTED_FILE="$MERGE_STARTED_FILE" MERGE_DONE_FILE="$MERGE_DONE_FILE" "$GIT_SF_TEST_HELPER" -test.run=TestFeatureHelperProcess -- merge-helper
 fi
 echo "unexpected gh command: $*" >&2

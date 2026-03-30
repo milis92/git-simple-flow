@@ -57,7 +57,12 @@ func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy 
 		}
 
 		// Merge PR
-		if err := cb.Run(func() error { return ctxGH.MergePR(mergeStrategy) }); err != nil {
+		if err := cb.Run(func() error {
+			if err := ctxGH.MergePR(mergeStrategy); err != nil {
+				return err
+			}
+			return ctxGH.VerifyPRMerged()
+		}); err != nil {
 			return err
 		}
 

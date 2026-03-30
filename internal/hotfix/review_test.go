@@ -367,13 +367,18 @@ func installFinishReleaseGH(t *testing.T) {
 	t.Helper()
 
 	binDir := t.TempDir()
+	mergedMarker := filepath.Join(binDir, "merged")
 	ghPath := filepath.Join(binDir, "gh")
 	script := `#!/bin/sh
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
-  echo '{"number":123,"title":"Hotfix PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  if [ -f "` + mergedMarker + `" ]; then
+    echo '{"number":123,"title":"Hotfix PR","state":"MERGED","url":"https://example.com/pr/123","isDraft":false}'
+  else
+    echo '{"number":123,"title":"Hotfix PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  fi
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -385,6 +390,7 @@ if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  touch "` + mergedMarker + `"
   exit 0
 fi
 echo "unexpected gh command: $*" >&2
