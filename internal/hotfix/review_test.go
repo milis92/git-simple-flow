@@ -1011,6 +1011,79 @@ func TestFinishReleaseRetryTagsMergedCommitNotLocalHEAD(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseRetryRepushesExistingLocalTag(t *testing.T) {
+	// Scenario: first run merged the PR and created the local tag v0.1.1
+	// but PushTag failed. The retry must push the existing local tag
+	// instead of silently skipping it.
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	ghFiles := installFinishReleaseQueuedThenMergedGHWithHead(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	// Record the fix commit SHA — this is the commit the retry must tag.
+	fixSHA := runGit(t, repoDir, "rev-parse", "HEAD")
+	if err := os.WriteFile(ghFiles.headSHAFile, []byte(fixSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate: the merge completed remotely.
+	mergerDir := filepath.Join(t.TempDir(), "merger")
+	runGit(t, t.TempDir(), "clone", bareDir, mergerDir)
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+
+	// Simulate the partial first-run state: tag exists locally but NOT pushed.
+	runGit(t, repoDir, "tag", "v0.1.1", fixSHA)
+	// Verify tag is NOT on remote yet.
+	remoteTags := runGit(t, repoDir, "ls-remote", "--tags", "origin", "v0.1.1")
+	if remoteTags != "" {
+		t.Fatalf("setup: v0.1.1 should not be on remote yet, got %q", remoteTags)
+	}
+
+	// Mark PR as merged so the retry path is taken.
+	if err := os.WriteFile(ghFiles.mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("retry Finish() error = %v, want success when local tag exists but push previously failed", err)
+	}
+
+	// Tag must now be on the remote.
+	remoteTags = runGit(t, repoDir, "ls-remote", "--tags", "origin", "v0.1.1")
+	if !strings.Contains(remoteTags, "v0.1.1") {
+		t.Fatalf("v0.1.1 was not pushed to remote; retry skipped PushTag for existing local tag")
+	}
+
+	// Tag must point to the fix commit.
+	tagSHA := runGit(t, repoDir, "rev-parse", "v0.1.1^{commit}")
+	if tagSHA != fixSHA {
+		t.Fatalf("v0.1.1 points to %s, want %s", tagSHA, fixSHA)
+	}
+}
+
 func TestFinishReleasePreflightIgnoresOffMainTags(t *testing.T) {
 	// Set up repo: main has v0.1.0, an unrelated hotfix published v0.1.1 off-main.
 	bareDir := t.TempDir()
