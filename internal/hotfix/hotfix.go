@@ -5,6 +5,7 @@ package hotfix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -241,7 +242,8 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			return fmt.Errorf("hotfix branch %s has diverged from remote; pull or reconcile before releasing", branch)
 		}
 
-		// Preflight: ensure hotfix branch has not been contaminated with unreleased main commits
+		// Retry detection: if the latest tag points at HEAD, a previous run
+		// already completed squash+tag. If the PR is now merged, skip to cleanup.
 		latestTag, err := qGit.LatestTag(s.Config.TagPrefix)
 		if err != nil {
 			return err
@@ -250,6 +252,17 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		if err != nil {
 			return fmt.Errorf("could not resolve tag %s: %w", latestTag, err)
 		}
+		headSHA, err := qGit.RevParse("HEAD")
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD: %w", err)
+		}
+		if tagSHA == headSHA {
+			if verifyErr := s.GH.VerifyPRMerged(); verifyErr == nil {
+				return s.cleanupAfterMerge(branch, latestTag)
+			}
+		}
+
+		// Preflight: ensure hotfix branch has not been contaminated with unreleased main commits
 		mergeBase, err := qGit.MergeBase("origin/"+s.Config.MainBranch, "HEAD")
 		if err != nil {
 			return fmt.Errorf("could not find merge base: %w", err)
@@ -306,7 +319,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			}
 
 			// Squash + force push (skip if already squashed from a previous attempt)
-			parentSHA, _ := ctxGit.ForQuery().RevParse("HEAD~1")
+			parentSHA, err := ctxGit.ForQuery().RevParse("HEAD~1")
+			if err != nil {
+				return fmt.Errorf("could not resolve HEAD~1: %w", err)
+			}
 			needsSquash := parentSHA != tagSHA
 			if needsSquash {
 				cb.Start()
@@ -340,9 +356,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return ctx.Err()
 			}
 
-			// Merge PR with --merge strategy.
-			// Note: the CI check above validates pre-squash SHAs as a sanity check.
-			// gh pr merge enforces branch protection on the actual (post-squash) SHA.
+			// Compute version for the release tag.
 			current, err := version.Parse(strings.TrimPrefix(latestTag, s.Config.TagPrefix))
 			if err != nil {
 				return err
@@ -352,6 +366,10 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 				return err
 			}
 			newTag := next.FormatWithPrefix(s.Config.TagPrefix)
+
+			// Merge PR with --merge strategy.
+			// Note: the CI check above validates pre-squash SHAs as a sanity check.
+			// gh pr merge enforces branch protection on the actual (post-squash) SHA.
 			mergeSubject := fmt.Sprintf("Merge hotfix %s", newTag)
 			if err := cb.Run(func() error { return ctxGH.MergePRWithMessage("merge", mergeSubject, "") }); err != nil {
 				return err
@@ -388,6 +406,9 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 			// Verify PR was actually merged before cleanup.
 			// If queued/auto-merge, skip cleanup (branch still needed) but tag is published.
 			if err := ctxGH.VerifyPRMerged(); err != nil {
+				if !errors.Is(err, gh.ErrPRNotMerged) {
+					return fmt.Errorf("post-merge verification failed: %w", err)
+				}
 				// PR is queued — skip remaining cleanup steps
 				for range 4 {
 					cb.Start()
@@ -515,7 +536,8 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 			return fmt.Errorf("hotfix branch %s has diverged from remote; pull or reconcile before releasing", branch)
 		}
 
-		// Safety: ensure hotfix branch has not been contaminated with unreleased main commits
+		// Retry detection: if the latest tag points at HEAD, a previous run
+		// already completed squash+tag. If the PR is now merged, skip to cleanup.
 		tag, err := qGit.LatestTag(s.Config.TagPrefix)
 		if err != nil {
 			return err
@@ -524,6 +546,17 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		if err != nil {
 			return fmt.Errorf("could not resolve tag %s: %w", tag, err)
 		}
+		headSHA, err := qGit.RevParse("HEAD")
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD: %w", err)
+		}
+		if tagSHA == headSHA {
+			if verifyErr := s.GH.VerifyPRMerged(); verifyErr == nil {
+				return s.cleanupAfterMerge(branch, tag)
+			}
+		}
+
+		// Safety: ensure hotfix branch has not been contaminated with unreleased main commits
 		base, err := qGit.MergeBase("origin/"+s.Config.MainBranch, "HEAD")
 		if err != nil {
 			return fmt.Errorf("could not find merge base: %w", err)
@@ -533,7 +566,10 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		}
 
 		// Squash + force push (skip if already squashed from a previous attempt)
-		parentSHA, _ := qGit.RevParse("HEAD~1")
+		parentSHA, err := qGit.RevParse("HEAD~1")
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD~1: %w", err)
+		}
 		if parentSHA != tagSHA {
 			if err := s.Git.ResetSoft(base); err != nil {
 				return fmt.Errorf("could not squash commits: %w", err)
@@ -553,15 +589,15 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		}
 
 		// Compute version
-		current, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
+		currentVer, err := version.Parse(strings.TrimPrefix(tag, s.Config.TagPrefix))
 		if err != nil {
 			return err
 		}
-		next, err := current.Bump("patch")
+		nextVer, err := currentVer.Bump("patch")
 		if err != nil {
 			return fmt.Errorf("could not bump version: %w", err)
 		}
-		newTag := next.FormatWithPrefix(s.Config.TagPrefix)
+		newTag := nextVer.FormatWithPrefix(s.Config.TagPrefix)
 
 		// Merge PR with --merge strategy and custom subject.
 		// Note: the CI check above validates pre-squash SHAs as a sanity check.
@@ -588,6 +624,9 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		// Verify PR was actually merged before cleanup.
 		// If queued/auto-merge, skip cleanup (branch still needed) but tag is published.
 		if err := s.GH.VerifyPRMerged(); err != nil {
+			if !errors.Is(err, gh.ErrPRNotMerged) {
+				return fmt.Errorf("post-merge verification failed: %w", err)
+			}
 			s.UI.Warning("PR is queued or pending — branch kept, tag published")
 			s.UI.Result("Hotfix released " + newTag)
 			return nil
@@ -650,6 +689,37 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 	}
 
 	s.UI.Result("Done.")
+	return nil
+}
+
+// cleanupAfterMerge performs post-merge cleanup when a previous run already
+// completed the squash-tag-merge steps but was interrupted before cleanup.
+// This is the retry path for queued merges that have since completed.
+func (s *Service) cleanupAfterMerge(branch, tag string) error {
+	s.UI.Info("Tag " + tag + " already exists and PR is merged — resuming cleanup")
+
+	if err := s.Git.Checkout(s.Config.MainBranch); err != nil {
+		return err
+	}
+	s.UI.Success("Switched to " + s.Config.MainBranch)
+
+	if err := s.Git.Pull(); err != nil {
+		return err
+	}
+	s.UI.Success("Pulled latest changes")
+
+	if err := s.Git.DeleteLocalBranch(branch); err != nil {
+		return err
+	}
+	s.UI.Success("Deleted branch " + branch + " (local)")
+
+	if err := s.Git.DeleteRemoteBranch(branch); err != nil {
+		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
+	} else {
+		s.UI.Success("Deleted branch " + branch + " (remote)")
+	}
+
+	s.UI.Result("Hotfix released " + tag)
 	return nil
 }
 

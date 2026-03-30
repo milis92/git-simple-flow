@@ -454,6 +454,99 @@ func TestFinishReleaseRetryKeepsPostSquashHeadStable(t *testing.T) {
 	}
 }
 
+func TestFinishReleaseFailsWhenPRMergeVerificationBreaks(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	installFinishReleaseVerifyFailureGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	err := svc.Finish(FinishOpts{Release: true})
+	if err == nil {
+		t.Fatalf("Finish() error = nil, want verification failure after merge request; output=%q", out.String())
+	}
+	if !strings.Contains(err.Error(), "post-merge verification failed") {
+		t.Fatalf("Finish() error = %q, want verification failure to propagate", err.Error())
+	}
+}
+
+func TestFinishReleaseCanCleanupAfterQueuedMergeOnRetry(t *testing.T) {
+	repoDir := initHotfixReleaseRepo(t)
+	bareDir := runGit(t, repoDir, "remote", "get-url", "origin")
+	mergedMarker := installFinishReleaseQueuedThenMergedGH(t)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "fix.txt"), []byte("fix\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "the fix")
+	runGit(t, repoDir, "push", "origin", "hotfix/test")
+
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &bytes.Buffer{}
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:    git.New(r, repoDir),
+		GH:     gh.New(r),
+		UI:     u,
+		Config: config.Defaults(),
+	}
+
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("first Finish() error = %v, want queued release to publish tag and keep branch", err)
+	}
+
+	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "hotfix/test" {
+		t.Fatalf("after queued release, HEAD = %q, want hotfix branch kept for later cleanup", current)
+	}
+
+	parentDir := t.TempDir()
+	mergerDir := filepath.Join(parentDir, "merger")
+	runGit(t, parentDir, "clone", bareDir, "merger")
+	runGit(t, mergerDir, "config", "user.name", "Merger")
+	runGit(t, mergerDir, "config", "user.email", "merger@example.com")
+	runGit(t, mergerDir, "checkout", "main")
+	runGit(t, mergerDir, "merge", "--no-ff", "origin/hotfix/test", "-m", "merge queued hotfix")
+	runGit(t, mergerDir, "push", "origin", "main")
+
+	if err := os.WriteFile(mergedMarker, []byte("merged"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Finish(FinishOpts{Release: true}); err != nil {
+		t.Fatalf("second Finish() error = %v, want cleanup to succeed after queued PR becomes merged", err)
+	}
+
+	if current := runGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); current != "main" {
+		t.Fatalf("after retry cleanup, HEAD = %q, want %q", current, "main")
+	}
+	branches := strings.Fields(runGit(t, repoDir, "branch", "--format=%(refname:short)"))
+	for _, branch := range branches {
+		if branch == "hotfix/test" {
+			t.Fatalf("expected hotfix branch to be deleted on retry cleanup, branches=%v", branches)
+		}
+	}
+}
+
 func TestDiscardInteractiveDryRunUsesRealRepoState(t *testing.T) {
 	repoDir := initHotfixRepo(t)
 
@@ -778,4 +871,90 @@ exit 1
 	}
 
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installFinishReleaseVerifyFailureGH(t *testing.T) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "number,title,state,url,isDraft" ]; then
+  echo '{"number":123,"title":"Hotfix PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "state" ]; then
+  echo 'not-json'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
+func installFinishReleaseQueuedThenMergedGH(t *testing.T) string {
+	t.Helper()
+
+	binDir := t.TempDir()
+	mergedMarker := filepath.Join(binDir, "merged")
+	ghPath := filepath.Join(binDir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "number,title,state,url,isDraft" ]; then
+  if [ -f "` + mergedMarker + `" ]; then
+    echo '{"number":123,"title":"Hotfix PR","state":"MERGED","url":"https://example.com/pr/123","isDraft":false}'
+  else
+    echo '{"number":123,"title":"Hotfix PR","state":"OPEN","url":"https://example.com/pr/123","isDraft":false}'
+  fi
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$4" = "state" ]; then
+  if [ -f "` + mergedMarker + `" ]; then
+    echo '{"state":"MERGED"}'
+  else
+    echo '{"state":"OPEN"}'
+  fi
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  case "$*" in
+    *--required*) ;;
+    *) echo "missing --required flag in: $*" >&2; exit 1 ;;
+  esac
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  exit 0
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(ghPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+	return mergedMarker
 }
