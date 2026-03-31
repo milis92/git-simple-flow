@@ -109,6 +109,12 @@ func (g *Git) TagAnnotated(name, message string) error {
 	return err
 }
 
+// DeleteLocalTag removes a tag from the local repository.
+func (g *Git) DeleteLocalTag(name string) error {
+	_, err := g.run("tag", "-d", name)
+	return err
+}
+
 // PushTag pushes a single tag to origin.
 func (g *Git) PushTag(name string) error {
 	_, err := g.run("push", "origin", name)

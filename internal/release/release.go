@@ -297,8 +297,9 @@ func (s *Service) PreviewReleaseCore(scope, message string) error {
 		}
 	}
 
-	// Retry recovery: check if a local preview tag exists but wasn't pushed
-	recovered, err := s.recoverLocalPreviewTag(qGit, prefix, suffix, target)
+	// Retry recovery: check if a local preview tag exists but wasn't pushed.
+	// Pass message so recovery can re-annotate the tag when a message is provided.
+	recovered, err := s.recoverLocalPreviewTag(qGit, prefix, suffix, target, message)
 	if err != nil {
 		return err
 	}
@@ -352,6 +353,8 @@ func (s *Service) PreviewReleaseCore(scope, message string) error {
 
 // findRecoverablePreviewTag returns the highest-counter local-only preview tag
 // on HEAD for the given target version, or "" if no recovery is needed.
+// A candidate is only recoverable if its counter exceeds every already-published
+// preview for the same target, ensuring monotonicity.
 func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (string, error) {
 	pattern := fmt.Sprintf("%s%s-%s.*", prefix, target.String(), suffix)
 	localTags, err := qGit.ListTags(pattern)
@@ -394,20 +397,46 @@ func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target vers
 		}
 	}
 
+	if best == "" {
+		return "", nil
+	}
+
+	// Ensure the candidate's counter exceeds any already-published preview.
+	// LatestPreviewTag includes both local and remote tags merged into HEAD.
+	latestPreview, err := qGit.LatestPreviewTag(prefix, suffix, "HEAD", target)
+	if err == nil && latestPreview != "" {
+		v, parseErr := version.Parse(strings.TrimPrefix(latestPreview, prefix))
+		if parseErr == nil && bestCounter <= v.PreBuild {
+			return "", nil // stale: a higher or equal counter already exists
+		}
+	}
+
 	return best, nil
 }
 
 // recoverLocalPreviewTag checks whether a local preview tag exists for the
 // given target version that was never pushed to origin (e.g. from a previous
 // failed push). If found, it pushes the highest-counter tag and returns true.
+// When message is non-empty, the local tag is recreated as an annotated tag
+// before pushing so user-supplied messages are not silently discarded.
 // Returns false if no recovery was needed.
-func (s *Service) recoverLocalPreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (bool, error) {
+func (s *Service) recoverLocalPreviewTag(qGit *git.Git, prefix, suffix string, target version.Version, message string) (bool, error) {
 	tag, err := findRecoverablePreviewTag(qGit, prefix, suffix, target)
 	if err != nil {
 		return false, err
 	}
 	if tag == "" {
 		return false, nil
+	}
+
+	// If the caller supplied a message, recreate the tag as annotated.
+	if message != "" {
+		if err := s.Git.DeleteLocalTag(tag); err != nil {
+			return false, fmt.Errorf("could not remove local tag %s for re-annotation: %w", tag, err)
+		}
+		if err := s.Git.TagAnnotated(tag, message); err != nil {
+			return false, err
+		}
 	}
 
 	s.UI.Info(fmt.Sprintf("Found unpushed local tag %s — pushing now", tag))
