@@ -9,7 +9,7 @@
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/milis92/git-simple-flow.git",
-        "path": ".claude-plugin/plugin"
+        "path": ".claude/skills/git-sf-workflow"
       },
       "description": "Teaches Claude to use git-sf — Simple Git Flow, all the structure, none of the ceremony"
     }

@@ -1,9 +1,0 @@
-{
-  "name": "git-sf-workflow",
-  "description": "Teaches Claude to use git-sf (Simple Git Flow) instead of raw git/gh commands. All the structure, none of the ceremony.",
-  "version": "1.0.0",
-  "author": {
-    "name": "milis92"
-  },
-  "repository": "https://github.com/milis92/git-simple-flow"
-}

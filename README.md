@@ -86,6 +86,7 @@ git sf release minor               # tag v1.x.0
 
 > [!TIP]
 > Most commands support `--dry-run` (preview without executing) and `--verbose` (print each command as it runs).
+> Use `--no-interactive` to disable prompts or `--yes` to auto-confirm them.
 > Read-only commands like `status`, `config`, and `init` ignore `--dry-run`.
 
 See the [workflow guide](docs/simple-flow.md) for the philosophy behind these commands.
@@ -151,7 +152,12 @@ The `release` command tags `main` with the next semver version and pushes the ta
 git sf release minor               # tag next minor version (default)
 git sf release major               # tag next major version
 git sf release patch               # tag next patch version
+git sf release minor -m "message"  # create an annotated tag
 ```
+
+| Flag        | Short | Description                            |
+|-------------|-------|----------------------------------------|
+| `--message` | `-m`  | Tag message (creates an annotated tag) |
 
 The command verifies that your local `main` is in sync with origin before tagging. If no tags exist yet, the first
 release starts at `v0.1.0`. The bump type argument is optional — when omitted, it uses your `default_release_bump`
@@ -169,6 +175,11 @@ Or create a preview tag automatically after merging a feature:
 
     git sf feature finish --preview
     git sf feature finish --preview --scope minor
+
+| Flag        | Short | Description                                     |
+|-------------|-------|-------------------------------------------------|
+| `--scope`   |       | Semver bump level: `major`, `minor`, or `patch` |
+| `--message` | `-m`  | Tag message (creates an annotated tag)          |
 
 ### Status
 
@@ -235,7 +246,7 @@ Configuration is merged from three layers (highest priority last):
 | `draft_pr_on_start`        | `false`    | Auto-create draft PR when starting a branch       |
 | `hotfix_auto_release`      | `false`    | Auto-tag patch release after `hotfix finish`      |
 | `prerelease_enabled`       | `false`    | Enable preview release tagging                    |
-| `default_prerelease_bump`  | `minor`    | Default semver bump for preview releases          |
+| `default_prerelease_bump`  | `patch`    | Default semver bump for preview releases          |
 | `prerelease_suffix`        | `beta`     | Suffix for preview tags (e.g. `beta`, `rc`, `alpha`) |
 
 Example `.sfconfig.yml`:

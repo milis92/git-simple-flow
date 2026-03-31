@@ -1,8 +1,7 @@
-git-sf
-coverage.out
-/docs/superpowers/
 .idea/
+**/superpowers/
 .claude/hooks/post-tool-call.py
 .claude/worktrees/
 .worktrees/
-.hotswan/
+git-sf
+coverage.out

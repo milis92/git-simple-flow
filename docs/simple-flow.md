@@ -2,12 +2,11 @@
 
 [README](../README.md) · [Installation](installation.md)
 
-Simple Flow is a Git branching model that sits between [Git Flow](https://nvie.com/posts/a-successful-git-branching-model/) and [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow).
-It keeps the single-trunk simplicity of GitHub Flow but adds structured hotfix paths that Git Flow provides — without the ceremony of
-release branches, develop branches, or feature flags.
-You work on feature branches, merge back to `main`, and tag a release when you are ready — with semver versioning built in.
+Simple Flow is a single-trunk Git branching model with semver versioning built in.
+You work on feature branches, merge to `main` via PR, and tag releases when you are ready — no release branches, no develop branch, no feature flags.
+Hotfixes branch from release tags so production fixes stay clean, and every step from branching to releasing is a single composable command.
 
-**Contents:** [Visual Overview](#visual-overview) · [Core Principles](#core-principles) · [Workflows](#workflows) · [Preview Releases](#preview-release-workflow) · [Comparison](#how-simple-flow-compares) · [Deployment Strategy](#deployment-strategy) · [Edge Cases](#edge-cases) · [When to Use Something Else](#when-to-use-something-else)
+**Contents:** [Visual Overview](#visual-overview) · [Core Principles](#core-principles) · [Workflows](#workflows) · [Preview Releases](#preview-release-workflow) · [Configuration](#configuration) · [Comparison](#how-simple-flow-compares) · [Deployment Strategy](#deployment-strategy) · [Edge Cases](#edge-cases) · [When to Use Something Else](#when-to-use-something-else)
 
 ## Visual Overview
 
@@ -57,6 +56,11 @@ long-lived branches other than `main`.
    git commit -m "feat: add login form"
    ```
 
+   > [!IMPORTANT]
+   > **On branch lifetime:** Feature branches can live for days or weeks. Unlike GitHub Flow, there is no pressure to merge
+   > the same day. Unlike Git Flow, there is no develop branch where unreleased work accumulates and becomes hard to reason
+   > about. The branch is yours until you are done. When you merge, it goes straight to the trunk.
+
 3. **Publish the branch.** Pushes to origin and opens a pull request against `main`.
 
    ```bash
@@ -84,11 +88,6 @@ long-lived branches other than `main`.
 > **Changed your mind?** Run `git sf feature discard` to close the PR, delete the branch, and switch back to `main`.
 >
 > **Check your progress** at any time with `git sf status` to see your branch, PR, and CI state.
-
-> [!IMPORTANT]
-> **On branch lifetime:** Feature branches can live for days or weeks. Unlike GitHub Flow, there is no pressure to merge
-> the same day. Unlike Git Flow, there is no develop branch where unreleased work accumulates and becomes hard to reason
-> about. The branch is yours until you are done. When you merge, it goes straight to the trunk.
 
 ### Hotfix Workflow
 
@@ -207,6 +206,48 @@ stable releases — the bump level controls which segment increments — but the
 > default_prerelease_bump: minor
 > ```
 
+## Configuration
+
+Configuration is merged from three layers, each overriding the previous:
+
+1. **Built-in defaults** — sensible out-of-the-box behavior, no files needed
+2. **Global config** — `~/.config/git-sf/config.yml` — your personal defaults across all repos
+3. **Repo config** — `.sfconfig.yml` at the repo root — shared team conventions
+
+Run `git sf config` to see the effective values and which layer each one comes from.
+
+### Options
+
+| Key                        | Default    | Description                                                     |
+|----------------------------|------------|-----------------------------------------------------------------|
+| `main_branch`              | `main`     | The trunk branch name                                           |
+| `tag_prefix`               | `v`        | Prefix for release tags (e.g. `v1.2.3`)                         |
+| `feature_prefix`           | `feature/` | Prefix for feature branches                                     |
+| `hotfix_prefix`            | `hotfix/`  | Prefix for hotfix branches                                      |
+| `merge_strategy`           | `squash`   | PR merge strategy: `squash`, `merge`, or `rebase`               |
+| `default_release_bump`     | `minor`    | Default semver bump for `release`: `major`, `minor`, or `patch` |
+| `draft_pr_on_start`        | `false`    | Auto-create a draft PR when starting a branch                   |
+| `hotfix_auto_release`      | `false`    | Auto-tag a patch release after `hotfix finish`                  |
+| `prerelease_enabled`       | `false`    | Enable preview release tagging                                  |
+| `default_prerelease_bump`  | `patch`    | Default semver bump for preview releases                        |
+| `prerelease_suffix`        | `beta`     | Suffix for preview tags (`beta`, `rc`, `alpha`, etc.)           |
+
+### Example: team config
+
+A team that uses merge commits, auto-creates draft PRs, and uses `rc` suffixes for previews:
+
+```yaml
+# .sfconfig.yml
+main_branch: main
+merge_strategy: merge
+draft_pr_on_start: true
+prerelease_enabled: true
+prerelease_suffix: rc
+default_prerelease_bump: minor
+```
+
+Run `git sf init` to generate a starter `.sfconfig.yml`, or `git sf init --force` to overwrite an existing one.
+
 ## How Simple Flow Compares
 
 |                          | Git Flow                                      | GitHub Flow           | Simple Flow                         |
@@ -257,26 +298,70 @@ points to a specific commit on `main`, you always know exactly what code is in a
 
 ### Example: GitHub Actions triggers
 
+Three separate workflow files, one per channel:
+
+<table>
+<tr>
+<td>
+
+**`.github/workflows/dev.yml`**
+
 ```yaml
 on:
   push:
-    branches: [main, 'feature/**', 'hotfix/**']
-    tags: ['v*.*.*', 'v*.*.*-*']
+    branches:
+      - 'feature/**'
+      - 'hotfix/**'
 
 jobs:
   dev:
-    if: startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/hotfix/')
-    # Build preview artifact, deploy to dev environment ...
-
-  beta:
-    if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '-')
-    # Build preview artifact, deploy to beta/RC channel ...
-    # Triggered by preview tags like v1.3.0-beta.1
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
-    # Build production artifact, publish to registry ...
+    runs-on: ubuntu-latest
+    steps:
+      # Build preview artifact
+      # Deploy to dev environment
 ```
+
+</td>
+<td>
+
+**`.github/workflows/beta.yml`**
+
+```yaml
+on:
+  push:
+    tags: ['v*.*.*-*']
+
+jobs:
+  beta:
+    runs-on: ubuntu-latest
+    steps:
+      # Build beta artifact
+      # Deploy to RC channel
+```
+
+</td>
+<td>
+
+**`.github/workflows/release.yml`**
+
+```yaml
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  release:
+    # Exclude prerelease tags
+    if: "!contains(github.ref_name, '-')"
+    runs-on: ubuntu-latest
+    steps:
+      # Build production artifact
+      # Publish to registry
+```
+
+</td>
+</tr>
+</table>
 
 ### Hotfix fast path
 
