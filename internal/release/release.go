@@ -183,24 +183,36 @@ func (s *Service) PreviewRelease(scope, message string) error {
 		}
 	}
 
-	// Compute the real counter so the confirmation prompt shows the
-	// actual tag name that PreviewReleaseCore will create.
-	counter := 1
-	latestPreview, err := qGit.LatestPreviewTag(prefix, suffix, "HEAD", target)
-	if err == nil && latestPreview != "" {
-		if v, parseErr := version.Parse(strings.TrimPrefix(latestPreview, prefix)); parseErr == nil {
-			counter = v.PreBuild + 1
-		}
+	// Check if a previous run left an unpushed local tag that
+	// PreviewReleaseCore will recover instead of creating a new one.
+	recoverable, recoverErr := findRecoverablePreviewTag(qGit, prefix, suffix, target)
+	if recoverErr != nil {
+		return recoverErr
 	}
 
-	previewTag := version.Version{
-		Major:      target.Major,
-		Minor:      target.Minor,
-		Patch:      target.Patch,
-		Prerelease: suffix,
-		PreBuild:   counter,
+	var newTag string
+	if recoverable != "" {
+		newTag = recoverable
+	} else {
+		// Compute the real counter so the confirmation prompt shows the
+		// actual tag name that PreviewReleaseCore will create.
+		counter := 1
+		latestPreview, err := qGit.LatestPreviewTag(prefix, suffix, "HEAD", target)
+		if err == nil && latestPreview != "" {
+			if v, parseErr := version.Parse(strings.TrimPrefix(latestPreview, prefix)); parseErr == nil {
+				counter = v.PreBuild + 1
+			}
+		}
+
+		previewTag := version.Version{
+			Major:      target.Major,
+			Minor:      target.Minor,
+			Patch:      target.Patch,
+			Prerelease: suffix,
+			PreBuild:   counter,
+		}
+		newTag = previewTag.FormatWithPrefix(prefix)
 	}
-	newTag := previewTag.FormatWithPrefix(prefix)
 
 	s.UI.Blank()
 	s.UI.Muted("Current: " + currentDisplay)
@@ -338,48 +350,71 @@ func (s *Service) PreviewReleaseCore(scope, message string) error {
 	return nil
 }
 
-// recoverLocalPreviewTag checks whether a local preview tag exists for the
-// given target version that was never pushed to origin (e.g. from a previous
-// failed push). If found, it pushes the tag and returns true. Returns false
-// if no recovery was needed.
-func (s *Service) recoverLocalPreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (bool, error) {
+// findRecoverablePreviewTag returns the highest-counter local-only preview tag
+// on HEAD for the given target version, or "" if no recovery is needed.
+func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (string, error) {
 	pattern := fmt.Sprintf("%s%s-%s.*", prefix, target.String(), suffix)
 	localTags, err := qGit.ListTags(pattern)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 
 	headSHA, err := qGit.RevParse("HEAD")
 	if err != nil {
-		return false, err
+		return "", err
 	}
+
+	var best string
+	bestCounter := 0
 
 	for _, tag := range localTags {
 		onRemote, err := qGit.TagExistsOnRemote(tag)
 		if err != nil {
-			return false, err
+			return "", err
 		}
-		if !onRemote {
-			// Only recover tags that point to HEAD. A stale local tag
-			// from a previous session must not be republished.
-			tagSHA, err := qGit.RevParse(tag + "^{commit}")
-			if err != nil {
-				return false, err
-			}
-			if tagSHA != headSHA {
-				s.UI.Warning(fmt.Sprintf("Stale local tag %s does not point to HEAD — skipping recovery", tag))
-				continue
-			}
+		if onRemote {
+			continue
+		}
 
-			s.UI.Info(fmt.Sprintf("Found unpushed local tag %s — pushing now", tag))
-			if err := s.Git.PushTag(tag); err != nil {
-				return false, err
-			}
-			s.UI.Success("Pushed recovered tag to origin")
-			s.UI.Result("Preview released " + tag)
-			return true, nil
+		tagSHA, err := qGit.RevParse(tag + "^{commit}")
+		if err != nil {
+			return "", err
+		}
+		if tagSHA != headSHA {
+			continue
+		}
+
+		v, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
+		if parseErr != nil {
+			continue
+		}
+		if v.PreBuild > bestCounter {
+			best = tag
+			bestCounter = v.PreBuild
 		}
 	}
 
-	return false, nil
+	return best, nil
+}
+
+// recoverLocalPreviewTag checks whether a local preview tag exists for the
+// given target version that was never pushed to origin (e.g. from a previous
+// failed push). If found, it pushes the highest-counter tag and returns true.
+// Returns false if no recovery was needed.
+func (s *Service) recoverLocalPreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (bool, error) {
+	tag, err := findRecoverablePreviewTag(qGit, prefix, suffix, target)
+	if err != nil {
+		return false, err
+	}
+	if tag == "" {
+		return false, nil
+	}
+
+	s.UI.Info(fmt.Sprintf("Found unpushed local tag %s — pushing now", tag))
+	if err := s.Git.PushTag(tag); err != nil {
+		return false, err
+	}
+	s.UI.Success("Pushed recovered tag to origin")
+	s.UI.Result("Preview released " + tag)
+	return true, nil
 }
