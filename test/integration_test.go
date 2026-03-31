@@ -308,6 +308,18 @@ func TestStatusOnMain(t *testing.T) {
 	}
 }
 
+// runGitCmd runs a git command in dir, returns trimmed stdout, and fatals on error.
+func runGitCmd(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %s\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func TestReleaseFirstRelease(t *testing.T) {
 	binary := buildBinary(t)
 	dir := setupRepoWithRemote(t)
@@ -324,5 +336,109 @@ func TestReleaseFirstRelease(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "v0.1.0") {
 		t.Errorf("expected v0.1.0 for first release, got: %s", out)
+	}
+}
+
+func TestReleasePreview(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepoWithRemote(t)
+
+	// Create a stable tag first
+	runGitCmd(t, dir, "tag", "v0.1.0")
+	runGitCmd(t, dir, "push", "origin", "v0.1.0")
+
+	// Run release preview
+	cmd := exec.Command(binary, "release", "preview", "--scope", "patch", "--yes")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("release preview failed: %s\n%s", err, out)
+	}
+
+	// Verify tag was created
+	tagOut := runGitCmd(t, dir, "tag", "-l", "v0.1.1-beta.1")
+	if tagOut != "v0.1.1-beta.1" {
+		t.Errorf("expected tag v0.1.1-beta.1, got %q", tagOut)
+	}
+
+	// Verify tag was pushed to remote
+	remoteOut := runGitCmd(t, dir, "ls-remote", "--tags", "origin", "v0.1.1-beta.1")
+	if !strings.Contains(remoteOut, "v0.1.1-beta.1") {
+		t.Errorf("tag not found on remote, got %q", remoteOut)
+	}
+}
+
+func TestReleasePreviewIncrementsCounter(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepoWithRemote(t)
+
+	runGitCmd(t, dir, "tag", "v0.1.0")
+	runGitCmd(t, dir, "push", "origin", "v0.1.0")
+
+	// First preview
+	cmd := exec.Command(binary, "release", "preview", "--scope", "patch", "--yes")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("first release preview failed: %s\n%s", err, out)
+	}
+
+	// Second preview
+	cmd = exec.Command(binary, "release", "preview", "--scope", "patch", "--yes")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("second release preview failed: %s\n%s", err, out)
+	}
+
+	// Verify counter incremented
+	tagOut := runGitCmd(t, dir, "tag", "-l", "v0.1.1-beta.2")
+	if tagOut != "v0.1.1-beta.2" {
+		t.Errorf("expected tag v0.1.1-beta.2, got %q", tagOut)
+	}
+}
+
+func TestReleasePreviewThenStable(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepoWithRemote(t)
+
+	runGitCmd(t, dir, "tag", "v0.1.0")
+	runGitCmd(t, dir, "push", "origin", "v0.1.0")
+
+	// Create a preview tag
+	cmd := exec.Command(binary, "release", "preview", "--scope", "patch", "--yes")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("release preview failed: %s\n%s", err, out)
+	}
+
+	// Now create a stable release — should bump from v0.1.0, not from the preview tag
+	cmd = exec.Command(binary, "release", "patch", "--yes")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("stable release failed: %s\n%s", err, out)
+	}
+
+	// Verify stable tag was created correctly
+	tagOut := runGitCmd(t, dir, "tag", "-l", "v0.1.1")
+	if tagOut != "v0.1.1" {
+		t.Errorf("expected stable tag v0.1.1, got %q", tagOut)
+	}
+}
+
+func TestReleasePreviewFreshRepo(t *testing.T) {
+	binary := buildBinary(t)
+	dir := setupRepoWithRemote(t)
+
+	// No existing tags — first preview should be v0.1.0-beta.1
+	cmd := exec.Command(binary, "release", "preview", "--yes")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("release preview failed: %s\n%s", err, out)
+	}
+
+	tagOut := runGitCmd(t, dir, "tag", "-l", "v0.1.0-beta.1")
+	if tagOut != "v0.1.0-beta.1" {
+		t.Errorf("expected tag v0.1.0-beta.1, got %q", tagOut)
 	}
 }

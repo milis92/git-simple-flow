@@ -111,6 +111,6 @@ Releases are automated via [GoReleaser](https://goreleaser.com/):
 
 - **Stable releases** — when a tag matching `v*.*.*` is pushed, CI runs tests and lint, then builds binaries for all platforms (Linux, macOS, Windows × AMD64, ARM64) and publishes to GitHub Releases with Debian/RPM packages.
 
-- **Beta (unstable)** — every push to `main` produces an immutable beta pre-release (e.g., `v1.1.0-beta.1`) with snapshot builds (tar.gz/zip archives only, no system packages).
+- **Preview (unstable)** — maintainers tag preview releases deliberately via `git sf release preview` (e.g., `v1.1.0-beta.1`). This produces snapshot builds (tar.gz/zip archives only, no system packages) for early testing. Preview tags are not created automatically on every push to `main`.
 
 Contributors don't need to run GoReleaser locally. Just open a PR, get it merged, and a maintainer will tag the release.

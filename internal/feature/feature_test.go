@@ -369,6 +369,178 @@ func helperArgs(args []string) []string {
 	return nil
 }
 
+// --- Preview tagging tests ---
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestShouldRunPreview(t *testing.T) {
+	tests := []struct {
+		name              string
+		opts              FinishOpts
+		prereleaseEnabled bool
+		wantRun           bool
+		wantHardFail      bool
+	}{
+		{
+			name:         "scope implies preview with hard fail",
+			opts:         FinishOpts{Scope: "minor"},
+			wantRun:      true,
+			wantHardFail: true,
+		},
+		{
+			name:         "explicit preview=true with hard fail",
+			opts:         FinishOpts{Preview: boolPtr(true)},
+			wantRun:      true,
+			wantHardFail: true,
+		},
+		{
+			name:         "explicit preview=false opts out",
+			opts:         FinishOpts{Preview: boolPtr(false)},
+			wantRun:      false,
+			wantHardFail: false,
+		},
+		{
+			name:              "nil preview + config enabled = auto with soft fail",
+			opts:              FinishOpts{},
+			prereleaseEnabled: true,
+			wantRun:           true,
+			wantHardFail:      false,
+		},
+		{
+			name:              "nil preview + config disabled = skip",
+			opts:              FinishOpts{},
+			prereleaseEnabled: false,
+			wantRun:           false,
+			wantHardFail:      false,
+		},
+		{
+			name:         "scope takes precedence over preview=false",
+			opts:         FinishOpts{Scope: "patch", Preview: boolPtr(false)},
+			wantRun:      true,
+			wantHardFail: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.PrereleaseEnabled = tt.prereleaseEnabled
+
+			svc := &Service{Config: cfg}
+
+			gotRun, gotHardFail := svc.shouldRunPreview(tt.opts)
+			if gotRun != tt.wantRun {
+				t.Errorf("run = %v, want %v", gotRun, tt.wantRun)
+			}
+			if gotHardFail != tt.wantHardFail {
+				t.Errorf("hardFail = %v, want %v", gotHardFail, tt.wantHardFail)
+			}
+		})
+	}
+}
+
+func TestRunPreviewIfNeeded(t *testing.T) {
+	previewErr := errors.New("tag creation failed")
+
+	tests := []struct {
+		name           string
+		opts           FinishOpts
+		prerelease     bool
+		previewRelease func(string, string) error
+		wantErr        bool
+		wantErrMsg     string
+	}{
+		{
+			name: "hard fail returns error when preview fails",
+			opts: FinishOpts{Preview: boolPtr(true)},
+			previewRelease: func(_, _ string) error {
+				return previewErr
+			},
+			wantErr:    true,
+			wantErrMsg: "preview release failed: tag creation failed",
+		},
+		{
+			name:       "soft fail logs warning and returns nil",
+			opts:       FinishOpts{},
+			prerelease: true,
+			previewRelease: func(_, _ string) error {
+				return previewErr
+			},
+			wantErr: false,
+		},
+		{
+			name:           "nil PreviewRelease + hard fail returns error",
+			opts:           FinishOpts{Preview: boolPtr(true)},
+			previewRelease: nil,
+			wantErr:        true,
+			wantErrMsg:     "preview release requested but not configured",
+		},
+		{
+			name:           "nil PreviewRelease + soft fail returns nil",
+			opts:           FinishOpts{},
+			prerelease:     true,
+			previewRelease: nil,
+			wantErr:        false,
+		},
+		{
+			name: "successful preview returns nil",
+			opts: FinishOpts{Preview: boolPtr(true)},
+			previewRelease: func(_, _ string) error {
+				return nil
+			},
+			wantErr: false,
+		},
+		{
+			name: "preview not run when disabled returns nil",
+			opts: FinishOpts{Preview: boolPtr(false)},
+			previewRelease: func(_, _ string) error {
+				t.Fatal("PreviewRelease should not be called when preview is disabled")
+				return nil
+			},
+			wantErr: false,
+		},
+		{
+			name: "scope is forwarded to PreviewRelease",
+			opts: FinishOpts{Scope: "major"},
+			previewRelease: func(scope, _ string) error {
+				if scope != "major" {
+					t.Errorf("scope = %q, want %q", scope, "major")
+				}
+				return nil
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Defaults()
+			cfg.PrereleaseEnabled = tt.prerelease
+
+			u := ui.New()
+			u.Out = &bytes.Buffer{}
+
+			svc := &Service{
+				Config:         cfg,
+				UI:             u,
+				PreviewRelease: tt.previewRelease,
+			}
+
+			err := svc.runPreviewIfNeeded(tt.opts)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("runPreviewIfNeeded() error = nil, want error")
+				}
+				if tt.wantErrMsg != "" && err.Error() != tt.wantErrMsg {
+					t.Errorf("error = %q, want %q", err.Error(), tt.wantErrMsg)
+				}
+			} else if err != nil {
+				t.Fatalf("runPreviewIfNeeded() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 

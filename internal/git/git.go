@@ -135,6 +135,9 @@ func (g *Git) LatestTag(prefix string) (string, error) {
 		if err != nil {
 			continue
 		}
+		if v.IsPrerelease() {
+			continue
+		}
 		versions = append(versions, v)
 		tagMap[v.String()] = tag
 	}
@@ -167,6 +170,9 @@ func (g *Git) LatestTagOnBranch(prefix, ref string) (string, error) {
 		if err != nil {
 			continue
 		}
+		if v.IsPrerelease() {
+			continue
+		}
 		versions = append(versions, v)
 		tagMap[v.String()] = tag
 	}
@@ -178,6 +184,54 @@ func (g *Git) LatestTagOnBranch(prefix, ref string) (string, error) {
 	})
 	latest := versions[len(versions)-1]
 	return tagMap[latest.String()], nil
+}
+
+// LatestPreviewTag finds the preview tag with the highest counter matching
+// the given suffix and target base version, reachable from ref. Returns
+// empty string (not error) if no matching preview tags exist.
+func (g *Git) LatestPreviewTag(prefix, suffix, ref string, target version.Version) (string, error) {
+	pattern := prefix + "*-" + suffix + ".*"
+	out, err := g.run("tag", "-l", pattern, "--merged", ref)
+	if err != nil {
+		return "", err
+	}
+	if out == "" {
+		return "", nil
+	}
+
+	var bestCounter int
+	var bestTag string
+
+	for _, tag := range strings.Split(out, "\n") {
+		v, err := version.Parse(strings.TrimPrefix(tag, prefix))
+		if err != nil {
+			continue
+		}
+		if v.Prerelease != suffix {
+			continue
+		}
+		if v.Major != target.Major || v.Minor != target.Minor || v.Patch != target.Patch {
+			continue
+		}
+		if bestTag == "" || v.PreBuild > bestCounter {
+			bestCounter = v.PreBuild
+			bestTag = tag
+		}
+	}
+
+	return bestTag, nil
+}
+
+// ListTags returns all tags matching the given pattern.
+func (g *Git) ListTags(pattern string) ([]string, error) {
+	out, err := g.run("tag", "-l", pattern)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // TagExistsOnRemote checks whether a tag has been pushed to origin.

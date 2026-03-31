@@ -257,6 +257,216 @@ func initReleaseRepo(t *testing.T) string {
 	return repoDir
 }
 
+func TestPreviewReleaseHappyPath(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewRelease("patch", ""); err != nil {
+		t.Fatalf("PreviewRelease() error = %v", err)
+	}
+
+	tagOutput := runGit(t, repoDir, "tag", "-l", "v0.1.1-beta.1")
+	if tagOutput != "v0.1.1-beta.1" {
+		t.Fatalf("expected tag v0.1.1-beta.1, got %q", tagOutput)
+	}
+}
+
+func TestPreviewReleaseFirstTagNoStable(t *testing.T) {
+	bareDir := t.TempDir()
+	runGit(t, bareDir, "init", "--bare", "-b", "main")
+	parentDir := t.TempDir()
+	repoDir := filepath.Join(parentDir, "work")
+	runGit(t, parentDir, "clone", bareDir, "work")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "init")
+	runGit(t, repoDir, "push", "origin", "main")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewRelease("patch", ""); err != nil {
+		t.Fatalf("PreviewRelease() error = %v", err)
+	}
+
+	tagOutput := runGit(t, repoDir, "tag", "-l", "v0.1.0-beta.1")
+	if tagOutput != "v0.1.0-beta.1" {
+		t.Fatalf("expected tag v0.1.0-beta.1, got %q", tagOutput)
+	}
+}
+
+func TestPreviewReleaseIncrementsCounter(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewRelease("patch", ""); err != nil {
+		t.Fatalf("first PreviewRelease() error = %v", err)
+	}
+	if err := svc.PreviewRelease("patch", ""); err != nil {
+		t.Fatalf("second PreviewRelease() error = %v", err)
+	}
+
+	tagOutput := runGit(t, repoDir, "tag", "-l", "v0.1.1-beta.2")
+	if tagOutput != "v0.1.1-beta.2" {
+		t.Fatalf("expected tag v0.1.1-beta.2, got %q", tagOutput)
+	}
+}
+
+func TestPreviewReleaseAnnotatedTag(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewRelease("patch", "Preview message"); err != nil {
+		t.Fatalf("PreviewRelease() error = %v", err)
+	}
+
+	objType := runGit(t, repoDir, "cat-file", "-t", "v0.1.1-beta.1")
+	if objType != "tag" {
+		t.Fatalf("expected annotated tag, got object type %q", objType)
+	}
+}
+
+func TestPreviewReleaseLightweightTag(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewRelease("patch", ""); err != nil {
+		t.Fatalf("PreviewRelease() error = %v", err)
+	}
+
+	objType := runGit(t, repoDir, "cat-file", "-t", "v0.1.1-beta.1")
+	if objType != "commit" {
+		t.Fatalf("expected lightweight tag, got object type %q", objType)
+	}
+}
+
+func TestPreviewReleaseNotOnMainErrors(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+	r := runner.NewRunner(false, false)
+	g := git.New(r, repoDir)
+	if err := g.CreateBranch("feature/test"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              g,
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	err := svc.PreviewRelease("patch", "")
+	if err == nil {
+		t.Fatal("expected error when not on main")
+	}
+	if !strings.Contains(err.Error(), "must be on main") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStableReleaseIgnoresPreviewTags(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	r := runner.NewRunner(false, false)
+
+	runGit(t, repoDir, "tag", "v0.1.1-beta.1")
+	runGit(t, repoDir, "push", "origin", "v0.1.1-beta.1")
+
+	var out bytes.Buffer
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           config.Defaults(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.Release("patch", ""); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "v0.1.1") {
+		t.Fatalf("Release() output = %q, want v0.1.1", out.String())
+	}
+}
+
+func previewConfig() config.Config {
+	cfg := config.Defaults()
+	cfg.PrereleaseSuffix = "beta"
+	cfg.DefaultPrereleaseBump = "patch"
+	return cfg
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 

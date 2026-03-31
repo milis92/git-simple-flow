@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/milis92/git-simple-flow/internal/feature"
 	"github.com/milis92/git-simple-flow/internal/gh"
 	"github.com/milis92/git-simple-flow/internal/git"
+	"github.com/milis92/git-simple-flow/internal/release"
 	"github.com/milis92/git-simple-flow/internal/runner"
 	"github.com/milis92/git-simple-flow/internal/ui"
 	"github.com/spf13/cobra"
@@ -65,6 +68,14 @@ var featureFinishCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		r := runner.NewRunner(dryRun, verbose)
+
+		releaseSvc := &release.Service{
+			Git:              git.New(r, "."),
+			UI:               newUI(),
+			Config:           cfg,
+			RunMessagePrompt: ui.RunMessagePrompt,
+		}
+
 		svc := &feature.Service{
 			Git:            git.New(r, "."),
 			GH:             gh.New(r),
@@ -72,9 +83,27 @@ var featureFinishCmd = &cobra.Command{
 			Config:         cfg,
 			RunTitlePrompt: ui.RunTitlePrompt,
 			RunProgress:    ui.RunProgress,
+			PreviewRelease: releaseSvc.PreviewReleaseCore,
 		}
+
 		force, _ := cmd.Flags().GetBool("force")
-		return svc.Finish(feature.FinishOpts{Force: force})
+		scope, _ := cmd.Flags().GetString("scope")
+
+		var preview *bool
+		if cmd.Flags().Changed("preview") {
+			val, _ := cmd.Flags().GetBool("preview")
+			preview = &val
+		}
+
+		if preview != nil && !*preview && scope != "" {
+			return fmt.Errorf("conflicting flags: --preview=false and --scope cannot be used together")
+		}
+
+		return svc.Finish(feature.FinishOpts{
+			Force:   force,
+			Preview: preview,
+			Scope:   scope,
+		})
 	},
 }
 
@@ -104,6 +133,8 @@ func init() {
 	featurePublishCmd.Flags().String("title", "", "PR title (defaults to humanized branch name)")
 	featurePublishCmd.Flags().String("body", "", "PR body/description")
 	featureFinishCmd.Flags().Bool("force", false, "skip PR checks validation")
+	featureFinishCmd.Flags().Bool("preview", false, "create a preview tag after merge")
+	featureFinishCmd.Flags().String("scope", "", "bump scope for preview tag: major, minor, or patch")
 	featureDiscardCmd.Flags().String("reason", "", "comment to leave on the closed PR")
 
 	featureCmd.AddCommand(featureStartCmd)

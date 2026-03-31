@@ -447,3 +447,133 @@ func TestValidateEmptyPrefixes(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultsIncludesPrereleaseFields(t *testing.T) {
+	cfg := Defaults()
+	if cfg.PrereleaseEnabled {
+		t.Error("PrereleaseEnabled should default to false")
+	}
+	if cfg.DefaultPrereleaseBump != "patch" {
+		t.Errorf("DefaultPrereleaseBump = %q, want %q", cfg.DefaultPrereleaseBump, "patch")
+	}
+	if cfg.PrereleaseSuffix != "beta" {
+		t.Errorf("PrereleaseSuffix = %q, want %q", cfg.PrereleaseSuffix, "beta")
+	}
+}
+
+func TestMergePrereleaseFields(t *testing.T) {
+	base := Defaults()
+	global := &PartialConfig{PrereleaseSuffix: "rc"}
+	repo := &PartialConfig{PrereleaseEnabled: boolPtr(true), DefaultPrereleaseBump: "minor"}
+	result := Merge(base, global, repo)
+	if !result.PrereleaseEnabled {
+		t.Error("PrereleaseEnabled should be true (from repo)")
+	}
+	if result.DefaultPrereleaseBump != "minor" {
+		t.Errorf("DefaultPrereleaseBump = %q, want %q (from repo)", result.DefaultPrereleaseBump, "minor")
+	}
+	if result.PrereleaseSuffix != "rc" {
+		t.Errorf("PrereleaseSuffix = %q, want %q (from global)", result.PrereleaseSuffix, "rc")
+	}
+}
+
+func TestSanitizePartialRejectsInvalidPrereleaseSuffix(t *testing.T) {
+	tests := []struct {
+		name   string
+		suffix string
+	}{
+		{"uppercase", "BETA"},
+		{"dash", "be-ta"},
+		{"dot", "be.ta"},
+		{"spaces", "  "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &PartialConfig{PrereleaseSuffix: tt.suffix}
+			sanitized, warnings := SanitizePartial(cfg)
+			if sanitized.PrereleaseSuffix != "" {
+				t.Errorf("PrereleaseSuffix should be cleared, got %q", sanitized.PrereleaseSuffix)
+			}
+			if len(warnings) == 0 {
+				t.Error("expected a warning for invalid suffix")
+			}
+		})
+	}
+}
+
+func TestSanitizePartialAcceptsValidPrereleaseSuffix(t *testing.T) {
+	for _, suffix := range []string{"beta", "rc", "alpha", "dev1"} {
+		cfg := &PartialConfig{PrereleaseSuffix: suffix}
+		sanitized, warnings := SanitizePartial(cfg)
+		if sanitized.PrereleaseSuffix != suffix {
+			t.Errorf("PrereleaseSuffix = %q, want %q", sanitized.PrereleaseSuffix, suffix)
+		}
+		for _, w := range warnings {
+			if w.Error() != "" {
+				t.Errorf("unexpected warning for valid suffix %q: %v", suffix, w)
+			}
+		}
+	}
+}
+
+func TestSanitizePartialRejectsInvalidPrereleaseBump(t *testing.T) {
+	cfg := &PartialConfig{DefaultPrereleaseBump: "tiny"}
+	sanitized, warnings := SanitizePartial(cfg)
+	if sanitized.DefaultPrereleaseBump != "" {
+		t.Errorf("DefaultPrereleaseBump should be cleared, got %q", sanitized.DefaultPrereleaseBump)
+	}
+	found := false
+	for _, w := range warnings {
+		if w != nil {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a warning for invalid bump")
+	}
+}
+
+func TestValidateRejectsInvalidPrereleaseSuffix(t *testing.T) {
+	cfg := Defaults()
+	cfg.PrereleaseSuffix = ""
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with empty prerelease_suffix")
+	}
+}
+
+func TestValidateRejectsInvalidPrereleaseBump(t *testing.T) {
+	cfg := Defaults()
+	cfg.DefaultPrereleaseBump = "tiny"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail with invalid default_prerelease_bump")
+	}
+}
+
+func TestUpdatePartialConfigFilePrereleaseFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	if err := UpdatePartialConfigFile(path, PartialConfig{
+		PrereleaseSuffix:      "rc",
+		DefaultPrereleaseBump: "minor",
+		PrereleaseEnabled:     boolPtr(true),
+	}); err != nil {
+		t.Fatalf("UpdatePartialConfigFile() error = %v", err)
+	}
+
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile() error = %v", err)
+	}
+	if loaded.PrereleaseSuffix != "rc" {
+		t.Errorf("PrereleaseSuffix = %q, want %q", loaded.PrereleaseSuffix, "rc")
+	}
+	if loaded.DefaultPrereleaseBump != "minor" {
+		t.Errorf("DefaultPrereleaseBump = %q, want %q", loaded.DefaultPrereleaseBump, "minor")
+	}
+	if loaded.PrereleaseEnabled == nil || !*loaded.PrereleaseEnabled {
+		t.Error("PrereleaseEnabled should be true")
+	}
+}

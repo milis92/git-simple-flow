@@ -140,14 +140,17 @@ var configEditCmd = &cobra.Command{
 		inherited := config.Merge(config.Defaults(), global)
 		cfg := config.Merge(inherited, repo)
 		defaults := ui.InitFormResult{
-			MainBranch:         cfg.MainBranch,
-			FeaturePrefix:      cfg.FeaturePrefix,
-			HotfixPrefix:       cfg.HotfixPrefix,
-			TagPrefix:          cfg.TagPrefix,
-			MergeStrategy:      cfg.MergeStrategy,
-			DefaultReleaseBump: cfg.DefaultReleaseBump,
-			DraftPR:            cfg.DraftPROnStart,
-			HotfixAutoRelease:  cfg.HotfixAutoRelease,
+			MainBranch:            cfg.MainBranch,
+			FeaturePrefix:         cfg.FeaturePrefix,
+			HotfixPrefix:          cfg.HotfixPrefix,
+			TagPrefix:             cfg.TagPrefix,
+			MergeStrategy:         cfg.MergeStrategy,
+			DefaultReleaseBump:    cfg.DefaultReleaseBump,
+			DraftPR:               cfg.DraftPROnStart,
+			HotfixAutoRelease:     cfg.HotfixAutoRelease,
+			PrereleaseEnabled:     cfg.PrereleaseEnabled,
+			DefaultPrereleaseBump: cfg.DefaultPrereleaseBump,
+			PrereleaseSuffix:      cfg.PrereleaseSuffix,
 		}
 
 		var partial config.PartialConfig
@@ -247,6 +250,12 @@ var configCmd = &cobra.Command{
 			func(c *config.PartialConfig) *bool { return c.DraftPROnStart })
 		printConfigBoolField(u, "hotfix_auto_release", cfg.HotfixAutoRelease, global, repo,
 			func(c *config.PartialConfig) *bool { return c.HotfixAutoRelease })
+		printConfigBoolField(u, "prerelease_enabled", cfg.PrereleaseEnabled, global, repo,
+			func(c *config.PartialConfig) *bool { return c.PrereleaseEnabled })
+		printConfigField(u, "default_prerelease_bump", cfg.DefaultPrereleaseBump, global, repo,
+			func(c *config.PartialConfig) string { return c.DefaultPrereleaseBump })
+		printConfigField(u, "prerelease_suffix", cfg.PrereleaseSuffix, global, repo,
+			func(c *config.PartialConfig) string { return c.PrereleaseSuffix })
 		u.Blank()
 
 		for _, w := range configWarnings {
@@ -304,6 +313,9 @@ func buildRepoConfigForEdit(inherited config.Config, existing *config.PartialCon
 	updated.DefaultReleaseBump = repoStringOverride(result.DefaultReleaseBump, inherited.DefaultReleaseBump, updated.DefaultReleaseBump)
 	updated.DraftPROnStart = repoBoolOverride(result.DraftPR, inherited.DraftPROnStart, updated.DraftPROnStart)
 	updated.HotfixAutoRelease = repoBoolOverride(result.HotfixAutoRelease, inherited.HotfixAutoRelease, updated.HotfixAutoRelease)
+	updated.DefaultPrereleaseBump = repoStringOverride(result.DefaultPrereleaseBump, inherited.DefaultPrereleaseBump, updated.DefaultPrereleaseBump)
+	updated.PrereleaseSuffix = repoStringOverride(result.PrereleaseSuffix, inherited.PrereleaseSuffix, updated.PrereleaseSuffix)
+	updated.PrereleaseEnabled = repoBoolOverride(result.PrereleaseEnabled, inherited.PrereleaseEnabled, updated.PrereleaseEnabled)
 
 	return updated
 }

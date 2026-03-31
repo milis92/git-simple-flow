@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/milis92/git-simple-flow/internal/runner"
+	"github.com/milis92/git-simple-flow/internal/version"
 )
 
 func setupTestRepo(t *testing.T) string {
@@ -272,6 +273,51 @@ func TestForcePush(t *testing.T) {
 	}
 }
 
+func TestLatestTagSkipsPrerelease(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.2"); err != nil {
+		t.Fatal(err)
+	}
+
+	tag, err := g.LatestTag("v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v1.0.0" {
+		t.Errorf("LatestTag() = %q, want %q (should skip prerelease tags)", tag, "v1.0.0")
+	}
+}
+
+func TestLatestTagOnBranchSkipsPrerelease(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	tag, err := g.LatestTagOnBranch("v", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v1.0.0" {
+		t.Errorf("LatestTagOnBranch() = %q, want %q (should skip prerelease)", tag, "v1.0.0")
+	}
+}
+
 func TestResetSoftAndCommitWithMessage(t *testing.T) {
 	dir := setupTestRepo(t)
 	r := runner.NewRunner(false, false)
@@ -331,5 +377,83 @@ func TestResetSoftAndCommitWithMessage(t *testing.T) {
 	}
 	if msg != "squashed commit" {
 		t.Errorf("commit message = %q, want %q", msg, "squashed commit")
+	}
+}
+
+func TestLatestPreviewTag(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	target := version.Version{Major: 1, Minor: 0, Patch: 1}
+
+	// No preview tags yet
+	tag, err := g.LatestPreviewTag("v", "beta", "HEAD", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "" {
+		t.Errorf("LatestPreviewTag() = %q, want empty when no tags exist", tag)
+	}
+
+	// Add preview tags
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.2"); err != nil {
+		t.Fatal(err)
+	}
+
+	tag, err = g.LatestPreviewTag("v", "beta", "HEAD", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v1.0.1-beta.3" {
+		t.Errorf("LatestPreviewTag() = %q, want %q", tag, "v1.0.1-beta.3")
+	}
+}
+
+func TestLatestPreviewTagIgnoresStableAndWrongSuffix(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	target := version.Version{Major: 1, Minor: 0, Patch: 1}
+
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-rc.5"); err != nil {
+		t.Fatal(err)
+	}
+
+	tag, err := g.LatestPreviewTag("v", "beta", "HEAD", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "" {
+		t.Errorf("LatestPreviewTag() = %q, want empty (no beta tags)", tag)
+	}
+}
+
+func TestLatestPreviewTagIgnoresDifferentTarget(t *testing.T) {
+	dir := setupTestRepo(t)
+	r := runner.NewRunner(false, false)
+	g := New(r, dir)
+
+	if _, err := r.Run("git", "-C", dir, "tag", "v1.0.1-beta.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	target := version.Version{Major: 1, Minor: 0, Patch: 2}
+	tag, err := g.LatestPreviewTag("v", "beta", "HEAD", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "" {
+		t.Errorf("LatestPreviewTag() = %q, want empty (wrong target)", tag)
 	}
 }

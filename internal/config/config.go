@@ -16,28 +16,34 @@ import (
 
 // Config holds the fully resolved configuration with all fields populated.
 type Config struct {
-	MainBranch         string `yaml:"main_branch"`
-	TagPrefix          string `yaml:"tag_prefix"`
-	FeaturePrefix      string `yaml:"feature_prefix"`
-	HotfixPrefix       string `yaml:"hotfix_prefix"`
-	MergeStrategy      string `yaml:"merge_strategy"`
-	DefaultReleaseBump string `yaml:"default_release_bump"`
-	DraftPROnStart     bool   `yaml:"draft_pr_on_start"`
-	HotfixAutoRelease  bool   `yaml:"hotfix_auto_release"`
+	MainBranch            string `yaml:"main_branch"`
+	TagPrefix             string `yaml:"tag_prefix"`
+	FeaturePrefix         string `yaml:"feature_prefix"`
+	HotfixPrefix          string `yaml:"hotfix_prefix"`
+	MergeStrategy         string `yaml:"merge_strategy"`
+	DefaultReleaseBump    string `yaml:"default_release_bump"`
+	DraftPROnStart        bool   `yaml:"draft_pr_on_start"`
+	HotfixAutoRelease     bool   `yaml:"hotfix_auto_release"`
+	PrereleaseEnabled     bool   `yaml:"prerelease_enabled"`
+	DefaultPrereleaseBump string `yaml:"default_prerelease_bump"`
+	PrereleaseSuffix      string `yaml:"prerelease_suffix"`
 }
 
 // PartialConfig represents a sparse configuration from a single layer (global
 // or repo). String fields use zero values to indicate "not set". Bool fields
 // use pointers so that nil (not set) is distinguishable from false.
 type PartialConfig struct {
-	MainBranch         string `yaml:"main_branch,omitempty"`
-	TagPrefix          string `yaml:"tag_prefix,omitempty"`
-	FeaturePrefix      string `yaml:"feature_prefix,omitempty"`
-	HotfixPrefix       string `yaml:"hotfix_prefix,omitempty"`
-	MergeStrategy      string `yaml:"merge_strategy,omitempty"`
-	DefaultReleaseBump string `yaml:"default_release_bump,omitempty"`
-	DraftPROnStart     *bool  `yaml:"draft_pr_on_start,omitempty"`
-	HotfixAutoRelease  *bool  `yaml:"hotfix_auto_release,omitempty"`
+	MainBranch            string `yaml:"main_branch,omitempty"`
+	TagPrefix             string `yaml:"tag_prefix,omitempty"`
+	FeaturePrefix         string `yaml:"feature_prefix,omitempty"`
+	HotfixPrefix          string `yaml:"hotfix_prefix,omitempty"`
+	MergeStrategy         string `yaml:"merge_strategy,omitempty"`
+	DefaultReleaseBump    string `yaml:"default_release_bump,omitempty"`
+	DraftPROnStart        *bool  `yaml:"draft_pr_on_start,omitempty"`
+	HotfixAutoRelease     *bool  `yaml:"hotfix_auto_release,omitempty"`
+	PrereleaseEnabled     *bool  `yaml:"prerelease_enabled,omitempty"`
+	DefaultPrereleaseBump string `yaml:"default_prerelease_bump,omitempty"`
+	PrereleaseSuffix      string `yaml:"prerelease_suffix,omitempty"`
 }
 
 func isValidMergeStrategy(value string) bool {
@@ -56,6 +62,18 @@ func isValidReleaseBump(value string) bool {
 	default:
 		return false
 	}
+}
+
+func isValidPrereleaseSuffix(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, c := range value {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // Validate checks that enum-like fields contain valid values and that
@@ -80,20 +98,29 @@ func (c Config) Validate() error {
 	if c.TagPrefix == "" {
 		return fmt.Errorf("tag_prefix must not be empty")
 	}
+	if !isValidReleaseBump(c.DefaultPrereleaseBump) {
+		return fmt.Errorf("invalid default_prerelease_bump %q: must be minor, patch, or major", c.DefaultPrereleaseBump)
+	}
+	if !isValidPrereleaseSuffix(c.PrereleaseSuffix) {
+		return fmt.Errorf("invalid prerelease_suffix %q: must be non-empty lowercase alphanumeric", c.PrereleaseSuffix)
+	}
 	return nil
 }
 
 // Defaults returns the built-in default configuration.
 func Defaults() Config {
 	return Config{
-		MainBranch:         "main",
-		TagPrefix:          "v",
-		FeaturePrefix:      "feature/",
-		HotfixPrefix:       "hotfix/",
-		MergeStrategy:      "squash",
-		DefaultReleaseBump: "minor",
-		DraftPROnStart:     false,
-		HotfixAutoRelease:  false,
+		MainBranch:            "main",
+		TagPrefix:             "v",
+		FeaturePrefix:         "feature/",
+		HotfixPrefix:          "hotfix/",
+		MergeStrategy:         "squash",
+		DefaultReleaseBump:    "minor",
+		DraftPROnStart:        false,
+		HotfixAutoRelease:     false,
+		PrereleaseEnabled:     false,
+		DefaultPrereleaseBump: "patch",
+		PrereleaseSuffix:      "beta",
 	}
 }
 
@@ -149,6 +176,25 @@ func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
 		sanitized.DefaultReleaseBump = ""
 	}
 
+	sanitized.DefaultPrereleaseBump = sanitizeStringField(sanitized.DefaultPrereleaseBump, "default_prerelease_bump", &warnings)
+	sanitized.PrereleaseSuffix = sanitizeStringField(sanitized.PrereleaseSuffix, "prerelease_suffix", &warnings)
+
+	if sanitized.DefaultPrereleaseBump != "" && !isValidReleaseBump(sanitized.DefaultPrereleaseBump) {
+		warnings = append(warnings, fmt.Errorf(
+			"invalid default_prerelease_bump %q: must be minor, patch, or major",
+			sanitized.DefaultPrereleaseBump,
+		))
+		sanitized.DefaultPrereleaseBump = ""
+	}
+
+	if sanitized.PrereleaseSuffix != "" && !isValidPrereleaseSuffix(sanitized.PrereleaseSuffix) {
+		warnings = append(warnings, fmt.Errorf(
+			"invalid prerelease_suffix %q: must be non-empty lowercase alphanumeric",
+			sanitized.PrereleaseSuffix,
+		))
+		sanitized.PrereleaseSuffix = ""
+	}
+
 	return &sanitized, warnings
 }
 
@@ -191,6 +237,15 @@ func Merge(base Config, layers ...*PartialConfig) Config {
 		}
 		if layer.HotfixAutoRelease != nil {
 			result.HotfixAutoRelease = *layer.HotfixAutoRelease
+		}
+		if layer.PrereleaseEnabled != nil {
+			result.PrereleaseEnabled = *layer.PrereleaseEnabled
+		}
+		if layer.DefaultPrereleaseBump != "" {
+			result.DefaultPrereleaseBump = layer.DefaultPrereleaseBump
+		}
+		if layer.PrereleaseSuffix != "" {
+			result.PrereleaseSuffix = layer.PrereleaseSuffix
 		}
 	}
 	return result
@@ -256,6 +311,9 @@ func UpdatePartialConfigFile(path string, cfg PartialConfig) error {
 	setStringField(root, "default_release_bump", cfg.DefaultReleaseBump)
 	setBoolField(root, "draft_pr_on_start", cfg.DraftPROnStart)
 	setBoolField(root, "hotfix_auto_release", cfg.HotfixAutoRelease)
+	setBoolField(root, "prerelease_enabled", cfg.PrereleaseEnabled)
+	setStringField(root, "default_prerelease_bump", cfg.DefaultPrereleaseBump)
+	setStringField(root, "prerelease_suffix", cfg.PrereleaseSuffix)
 
 	var out bytes.Buffer
 	enc := yaml.NewEncoder(&out)

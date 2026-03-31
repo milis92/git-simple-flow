@@ -21,27 +21,33 @@ func validateNonEmpty(field string) func(string) error {
 // InitFormResult holds values collected by the configuration wizard,
 // used by both the init and config edit commands.
 type InitFormResult struct {
-	MainBranch         string
-	FeaturePrefix      string
-	HotfixPrefix       string
-	TagPrefix          string
-	MergeStrategy      string
-	DefaultReleaseBump string
-	DraftPR            bool
-	HotfixAutoRelease  bool
+	MainBranch            string
+	FeaturePrefix         string
+	HotfixPrefix          string
+	TagPrefix             string
+	MergeStrategy         string
+	DefaultReleaseBump    string
+	DraftPR               bool
+	HotfixAutoRelease     bool
+	PrereleaseEnabled     bool
+	DefaultPrereleaseBump string
+	PrereleaseSuffix      string
 }
 
 // InitFormResultFromDefaults creates an InitFormResult pre-filled from config defaults.
 func InitFormResultFromDefaults(cfg config.Config) InitFormResult {
 	return InitFormResult{
-		MainBranch:         cfg.MainBranch,
-		FeaturePrefix:      cfg.FeaturePrefix,
-		HotfixPrefix:       cfg.HotfixPrefix,
-		TagPrefix:          cfg.TagPrefix,
-		MergeStrategy:      cfg.MergeStrategy,
-		DefaultReleaseBump: cfg.DefaultReleaseBump,
-		DraftPR:            cfg.DraftPROnStart,
-		HotfixAutoRelease:  cfg.HotfixAutoRelease,
+		MainBranch:            cfg.MainBranch,
+		FeaturePrefix:         cfg.FeaturePrefix,
+		HotfixPrefix:          cfg.HotfixPrefix,
+		TagPrefix:             cfg.TagPrefix,
+		MergeStrategy:         cfg.MergeStrategy,
+		DefaultReleaseBump:    cfg.DefaultReleaseBump,
+		DraftPR:               cfg.DraftPROnStart,
+		HotfixAutoRelease:     cfg.HotfixAutoRelease,
+		PrereleaseEnabled:     cfg.PrereleaseEnabled,
+		DefaultPrereleaseBump: cfg.DefaultPrereleaseBump,
+		PrereleaseSuffix:      cfg.PrereleaseSuffix,
 	}
 }
 
@@ -49,15 +55,19 @@ func InitFormResultFromDefaults(cfg config.Config) InitFormResult {
 func (r InitFormResult) ToPartialConfig() config.PartialConfig {
 	draftPR := r.DraftPR
 	hotfixAutoRelease := r.HotfixAutoRelease
+	prereleaseEnabled := r.PrereleaseEnabled
 	return config.PartialConfig{
-		MainBranch:         r.MainBranch,
-		FeaturePrefix:      r.FeaturePrefix,
-		HotfixPrefix:       r.HotfixPrefix,
-		TagPrefix:          r.TagPrefix,
-		MergeStrategy:      r.MergeStrategy,
-		DefaultReleaseBump: r.DefaultReleaseBump,
-		DraftPROnStart:     &draftPR,
-		HotfixAutoRelease:  &hotfixAutoRelease,
+		MainBranch:            r.MainBranch,
+		FeaturePrefix:         r.FeaturePrefix,
+		HotfixPrefix:          r.HotfixPrefix,
+		TagPrefix:             r.TagPrefix,
+		MergeStrategy:         r.MergeStrategy,
+		DefaultReleaseBump:    r.DefaultReleaseBump,
+		DraftPROnStart:        &draftPR,
+		HotfixAutoRelease:     &hotfixAutoRelease,
+		PrereleaseEnabled:     &prereleaseEnabled,
+		DefaultPrereleaseBump: r.DefaultPrereleaseBump,
+		PrereleaseSuffix:      r.PrereleaseSuffix,
 	}
 }
 
@@ -100,7 +110,7 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 				Title("Main branch").
 				Options(branchOptions...).
 				Value(&result.MainBranch),
-		).Title("Repository").Description("1/4"),
+		).Title("Repository").Description("1/5"),
 
 		huh.NewGroup(
 			huh.NewInput().
@@ -111,7 +121,7 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 				Title("Hotfix branch prefix").
 				Value(&result.HotfixPrefix).
 				Validate(validateNonEmpty("hotfix prefix")),
-		).Title("Branches").Description("2/4"),
+		).Title("Branches").Description("2/5"),
 
 		huh.NewGroup(
 			huh.NewInput().
@@ -126,7 +136,7 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 				Title("Default release bump").
 				Options(releaseBumpOptions...).
 				Value(&result.DefaultReleaseBump),
-		).Title("Tags & Merges").Description("3/4"),
+		).Title("Tags & Merges").Description("3/5"),
 
 		huh.NewGroup(
 			huh.NewConfirm().
@@ -135,7 +145,22 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 			huh.NewConfirm().
 				Title("Auto-release patch after hotfix finish?").
 				Value(&result.HotfixAutoRelease),
-		).Title("Automation").Description("4/4"),
+		).Title("Automation").Description("4/5"),
+
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Auto-create preview tag on feature finish?").
+				Value(&result.PrereleaseEnabled),
+			huh.NewSelect[string]().
+				Title("Default prerelease bump").
+				Options(releaseBumpOptions...).
+				Value(&result.DefaultPrereleaseBump),
+			huh.NewInput().
+				Title("Prerelease suffix").
+				Description("e.g. beta, rc, alpha").
+				Value(&result.PrereleaseSuffix).
+				Validate(validateNonEmpty("prerelease suffix")),
+		).Title("Preview Releases").Description("5/5"),
 	).WithTheme(theme.HuhTheme())
 
 	err := form.Run()

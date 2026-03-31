@@ -38,7 +38,7 @@ exit 1
 
 	r := runner.NewRunner(false, false)
 	var merged bool
-	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false, &merged)
+	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false, &merged, 7)
 
 	err := wf(context.Background(), ui.StepCallbacks{
 		Start: func() {},
@@ -188,7 +188,7 @@ exit 1
 
 	r := runner.NewRunner(false, false)
 	var merged bool
-	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false, &merged)
+	wf := FinishWorkflow(git.New(r, repoDir), gh.New(r), "feature/test", "main", "squash", false, &merged, 7)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

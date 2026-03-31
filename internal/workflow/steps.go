@@ -27,7 +27,7 @@ func FinishStepDefs(mainBranch string) []ui.StepDef {
 // FinishWorkflow returns a workflow function that checks CI, merges the PR,
 // switches to main, pulls, and cleans up local/remote branches.
 // The returned function can be composed with additional steps by wrapping it.
-func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy string, force bool, merged *bool) func(context.Context, ui.StepCallbacks) error {
+func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy string, force bool, merged *bool, totalSteps int) func(context.Context, ui.StepCallbacks) error {
 	return func(ctx context.Context, cb ui.StepCallbacks) error {
 		ctxGit := g.WithContext(ctx)
 		ctxGH := ghCli.WithContext(ctx)
@@ -75,9 +75,9 @@ func FinishWorkflow(g *git.Git, ghCli *gh.GH, branch, mainBranch, mergeStrategy 
 				cb.Fail(fmt.Sprintf("post-merge verification failed: %s", err))
 				return fmt.Errorf("post-merge verification failed: %w", err)
 			}
-			// PR is queued — skip cleanup steps
+			// PR is queued — skip remaining steps (cleanup + any appended steps).
 			cb.SkipStep("PR queued — waiting")
-			for range 4 {
+			for range totalSteps - 3 { // 3 = Check CI + Merge PR + Verify merge
 				cb.Start()
 				cb.SkipStep("PR queued — skipped")
 			}

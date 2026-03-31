@@ -453,7 +453,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 	}
 
 	var merged bool
-	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged)
+	commonFinish := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged, len(defs))
 	err = s.RunProgress("git sf hotfix finish", branch, defs, commonFinish)
 	if err != nil {
 		return err
