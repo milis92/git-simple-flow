@@ -123,3 +123,329 @@ func (s *Service) Release(scope, message string) error {
 	s.UI.Result("Released " + newTag)
 	return nil
 }
+
+// PreviewRelease creates a prerelease tag on main with a confirmation prompt
+// and optional message prompt. It delegates to PreviewReleaseCore for the
+// actual tagging. This is the interactive entry point for `git sf release preview`.
+func (s *Service) PreviewRelease(scope, message string) error {
+	if err := git.CheckGitInstalled(); err != nil {
+		return err
+	}
+
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
+		return err
+	}
+	if err := qGit.CheckOnBranch(s.Config.MainBranch); err != nil {
+		return err
+	}
+
+	if err := s.Git.Fetch(); err != nil {
+		return err
+	}
+
+	inSync, err := qGit.IsInSyncWithRemote(s.Config.MainBranch)
+	if err != nil {
+		return err
+	}
+	if !inSync {
+		return fmt.Errorf("local %s is not in sync with origin/%s — pull or push first", s.Config.MainBranch, s.Config.MainBranch)
+	}
+
+	// Resolve scope
+	if scope == "" {
+		scope = s.Config.DefaultPrereleaseBump
+	}
+
+	suffix := s.Config.PrereleaseSuffix
+	prefix := s.Config.TagPrefix
+
+	// Find latest stable tag and compute target
+	tag, err := qGit.LatestTagOnBranch(prefix, "HEAD")
+	var target version.Version
+	var currentDisplay string
+
+	if err != nil {
+		// No tags — first release
+		target = version.Version{Major: 0, Minor: 1, Patch: 0}
+		currentDisplay = "(no tags)"
+		s.UI.Info("No existing tags found. Starting at " + target.FormatWithPrefix(prefix))
+	} else {
+		current, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
+		if parseErr != nil {
+			return parseErr
+		}
+		currentDisplay = tag
+		target, err = current.Bump(scope)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Check if a previous run left an unpushed local tag that
+	// PreviewReleaseCore will recover instead of creating a new one.
+	recoverable, recoverErr := findRecoverablePreviewTag(qGit, prefix, suffix, target)
+	if recoverErr != nil {
+		return recoverErr
+	}
+
+	var newTag string
+	if recoverable != "" {
+		newTag = recoverable
+	} else {
+		// Compute the real counter so the confirmation prompt shows the
+		// actual tag name that PreviewReleaseCore will create.
+		counter := 1
+		latestPreview, err := qGit.LatestPreviewTag(prefix, suffix, "HEAD", target)
+		if err == nil && latestPreview != "" {
+			if v, parseErr := version.Parse(strings.TrimPrefix(latestPreview, prefix)); parseErr == nil {
+				counter = v.PreBuild + 1
+			}
+		}
+
+		previewTag := version.Version{
+			Major:      target.Major,
+			Minor:      target.Minor,
+			Patch:      target.Patch,
+			Prerelease: suffix,
+			PreBuild:   counter,
+		}
+		newTag = previewTag.FormatWithPrefix(prefix)
+	}
+
+	s.UI.Blank()
+	s.UI.Muted("Current: " + currentDisplay)
+	s.UI.Muted(fmt.Sprintf("Next:    %s (%s preview)", newTag, scope))
+	s.UI.Blank()
+
+	confirmed, err := s.UI.Confirm("Confirm preview release?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		s.UI.Muted("Aborted.")
+		return nil
+	}
+
+	s.UI.Blank()
+
+	if message == "" && s.UI.ShouldPrompt() {
+		var promptErr error
+		message, promptErr = s.RunMessagePrompt(newTag)
+		if promptErr != nil {
+			return promptErr
+		}
+	}
+
+	return s.PreviewReleaseCore(scope, message)
+}
+
+// PreviewReleaseCore creates a prerelease tag on main without any interactive
+// prompts. It is the public method called by both PreviewRelease and feature
+// finish. It handles retry recovery for previously failed tag pushes.
+func (s *Service) PreviewReleaseCore(scope, message string) error {
+	if err := git.CheckGitInstalled(); err != nil {
+		return err
+	}
+
+	qGit := s.Git.ForQuery()
+
+	if err := qGit.CheckIsRepo(); err != nil {
+		return err
+	}
+	if err := qGit.CheckOnBranch(s.Config.MainBranch); err != nil {
+		return err
+	}
+
+	if err := s.Git.Fetch(); err != nil {
+		return err
+	}
+
+	inSync, err := qGit.IsInSyncWithRemote(s.Config.MainBranch)
+	if err != nil {
+		return err
+	}
+	if !inSync {
+		return fmt.Errorf("local %s is not in sync with origin/%s — pull or push first", s.Config.MainBranch, s.Config.MainBranch)
+	}
+
+	// Resolve scope
+	if scope == "" {
+		scope = s.Config.DefaultPrereleaseBump
+	}
+
+	suffix := s.Config.PrereleaseSuffix
+	prefix := s.Config.TagPrefix
+
+	// Find latest stable tag and compute target
+	tag, err := qGit.LatestTagOnBranch(prefix, "HEAD")
+	var target version.Version
+
+	if err != nil {
+		// No tags — first release
+		target = version.Version{Major: 0, Minor: 1, Patch: 0}
+		s.UI.Info("No existing tags found. Starting at " + target.FormatWithPrefix(prefix))
+	} else {
+		current, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
+		if parseErr != nil {
+			return parseErr
+		}
+		target, err = current.Bump(scope)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Retry recovery: check if a local preview tag exists but wasn't pushed.
+	// Pass message so recovery can re-annotate the tag when a message is provided.
+	recovered, err := s.recoverLocalPreviewTag(qGit, prefix, suffix, target, message)
+	if err != nil {
+		return err
+	}
+	if recovered {
+		return nil
+	}
+
+	// Find latest preview tag for this target to determine next counter
+	latestPreview, err := qGit.LatestPreviewTag(prefix, suffix, "HEAD", target)
+	if err != nil {
+		return err
+	}
+
+	counter := 1
+	if latestPreview != "" {
+		v, parseErr := version.Parse(strings.TrimPrefix(latestPreview, prefix))
+		if parseErr != nil {
+			return parseErr
+		}
+		counter = v.PreBuild + 1
+	}
+
+	next := version.Version{
+		Major:      target.Major,
+		Minor:      target.Minor,
+		Patch:      target.Patch,
+		Prerelease: suffix,
+		PreBuild:   counter,
+	}
+	newTag := next.FormatWithPrefix(prefix)
+
+	if message != "" {
+		if err := s.Git.TagAnnotated(newTag, message); err != nil {
+			return err
+		}
+	} else {
+		if err := s.Git.Tag(newTag); err != nil {
+			return err
+		}
+	}
+	s.UI.Success("Tagged " + newTag)
+
+	if err := s.Git.PushTag(newTag); err != nil {
+		return err
+	}
+	s.UI.Success("Pushed tag to origin")
+
+	s.UI.Result("Preview released " + newTag)
+	return nil
+}
+
+// findRecoverablePreviewTag returns the highest-counter local-only preview tag
+// on HEAD for the given target version, or "" if no recovery is needed.
+// A candidate is only recoverable if its counter exceeds every already-published
+// (remote) preview reachable from HEAD, ensuring monotonicity. Using --merged HEAD
+// matches the scope of LatestPreviewTag so off-branch remote tags are ignored.
+func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (string, error) {
+	pattern := fmt.Sprintf("%s%s-%s.*", prefix, target.String(), suffix)
+	tags, err := qGit.ListTagsMerged(pattern, "HEAD")
+	if err != nil {
+		return "", err
+	}
+
+	headSHA, err := qGit.RevParse("HEAD")
+	if err != nil {
+		return "", err
+	}
+
+	var best string
+	bestCounter := 0
+	highestPublished := 0
+
+	for _, tag := range tags {
+		v, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
+		if parseErr != nil {
+			continue
+		}
+
+		onRemote, err := qGit.TagExistsOnRemote(tag)
+		if err != nil {
+			return "", err
+		}
+
+		if onRemote {
+			if v.PreBuild > highestPublished {
+				highestPublished = v.PreBuild
+			}
+			continue
+		}
+
+		tagSHA, err := qGit.RevParse(tag + "^{commit}")
+		if err != nil {
+			return "", err
+		}
+		if tagSHA != headSHA {
+			continue
+		}
+
+		if v.PreBuild > bestCounter {
+			best = tag
+			bestCounter = v.PreBuild
+		}
+	}
+
+	if best == "" {
+		return "", nil
+	}
+
+	// Only recover if the candidate exceeds all published counters
+	// reachable from HEAD.
+	if bestCounter <= highestPublished {
+		return "", nil
+	}
+
+	return best, nil
+}
+
+// recoverLocalPreviewTag checks whether a local preview tag exists for the
+// given target version that was never pushed to origin (e.g. from a previous
+// failed push). If found, it pushes the highest-counter tag and returns true.
+// When message is non-empty, the local tag is recreated as an annotated tag
+// before pushing so user-supplied messages are not silently discarded.
+// Returns false if no recovery was needed.
+func (s *Service) recoverLocalPreviewTag(qGit *git.Git, prefix, suffix string, target version.Version, message string) (bool, error) {
+	tag, err := findRecoverablePreviewTag(qGit, prefix, suffix, target)
+	if err != nil {
+		return false, err
+	}
+	if tag == "" {
+		return false, nil
+	}
+
+	// If the caller supplied a message, atomically replace the tag with
+	// an annotated version. Using -f ensures the original is preserved if
+	// the command fails (e.g. gpg signing unavailable).
+	if message != "" {
+		if err := s.Git.ReplaceTagAnnotated(tag, message); err != nil {
+			return false, err
+		}
+	}
+
+	s.UI.Info(fmt.Sprintf("Found unpushed local tag %s — pushing now", tag))
+	if err := s.Git.PushTag(tag); err != nil {
+		return false, err
+	}
+	s.UI.Success("Pushed recovered tag to origin")
+	s.UI.Result("Preview released " + tag)
+	return true, nil
+}

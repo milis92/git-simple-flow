@@ -25,6 +25,7 @@ type Service struct {
 	Config         config.Config
 	RunTitlePrompt func(string, bool) (ui.InputPromptResult, error)
 	RunProgress    func(string, string, []ui.StepDef, func(context.Context, ui.StepCallbacks) error) error
+	PreviewRelease func(scope, message string) error
 }
 
 // StartOpts configures feature branch creation.
@@ -47,6 +48,54 @@ type PublishOpts struct {
 type FinishOpts struct {
 	// Force skips CI check verification before merging.
 	Force bool
+	// Preview controls whether a preview tag is created after merge.
+	// nil = use config default, true = force preview, false = skip preview.
+	Preview *bool
+	// Scope is the bump scope for the preview tag: major, minor, or patch.
+	Scope string
+}
+
+// shouldRunPreview decides whether to run the preview release step and whether
+// a failure should be a hard error. Explicit flags (--scope, --preview=true)
+// make failures hard errors; config-driven auto-preview makes failures soft warnings.
+func (s *Service) shouldRunPreview(opts FinishOpts) (run bool, hardFail bool) {
+	if opts.Scope != "" {
+		return true, true
+	}
+	if opts.Preview != nil {
+		if *opts.Preview {
+			return true, true
+		}
+		return false, false
+	}
+	if s.Config.PrereleaseEnabled {
+		return true, false
+	}
+	return false, false
+}
+
+// runPreviewIfNeeded runs the preview release step if conditions are met.
+// Hard-fail mode returns errors directly; soft-fail mode logs warnings.
+func (s *Service) runPreviewIfNeeded(opts FinishOpts) error {
+	run, hardFail := s.shouldRunPreview(opts)
+	if !run {
+		return nil
+	}
+	if s.PreviewRelease == nil {
+		if hardFail {
+			return fmt.Errorf("preview release requested but not configured")
+		}
+		return nil
+	}
+
+	err := s.PreviewRelease(opts.Scope, "")
+	if err != nil {
+		if hardFail {
+			return fmt.Errorf("preview release failed: %w", err)
+		}
+		s.UI.Warning(fmt.Sprintf("Preview release failed (non-blocking): %s", err))
+	}
+	return nil
 }
 
 // Start creates a new feature branch from main. It checks out main, pulls
@@ -234,7 +283,7 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 	}
 
 	var merged bool
-	wf := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged)
+	wf := workflow.FinishWorkflow(s.Git, s.GH, branch, s.Config.MainBranch, s.Config.MergeStrategy, opts.Force, &merged, len(defs))
 	if err := s.RunProgress("git sf feature finish", branch, defs, wf); err != nil {
 		return err
 	}
@@ -243,6 +292,11 @@ func (s *Service) finishInteractive(branch string, opts FinishOpts, qGH *gh.GH) 
 		s.UI.Warning("PR is queued or pending — re-run 'git sf feature finish' after merge completes")
 		return nil
 	}
+
+	if err := s.runPreviewIfNeeded(opts); err != nil {
+		return err
+	}
+
 	s.UI.Result("Feature complete!")
 	return nil
 }
@@ -319,6 +373,10 @@ func (s *Service) finishClassic(branch string, opts FinishOpts, qGH *gh.GH) erro
 		s.UI.Warning(fmt.Sprintf("Could not delete remote branch %s: %s", branch, err))
 	} else {
 		s.UI.Success("Deleted remote branch " + branch)
+	}
+
+	if err := s.runPreviewIfNeeded(opts); err != nil {
+		return err
 	}
 
 	s.UI.Result("Feature complete!")

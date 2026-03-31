@@ -7,7 +7,7 @@ It keeps the single-trunk simplicity of GitHub Flow but adds structured hotfix p
 release branches, develop branches, or feature flags.
 You work on feature branches, merge back to `main`, and tag a release when you are ready — with semver versioning built in.
 
-**Contents:** [Visual Overview](#visual-overview) · [Core Principles](#core-principles) · [Workflows](#workflows) · [Comparison](#how-simple-flow-compares) · [Deployment Strategy](#deployment-strategy) · [Edge Cases](#edge-cases) · [When to Use Something Else](#when-to-use-something-else)
+**Contents:** [Visual Overview](#visual-overview) · [Core Principles](#core-principles) · [Workflows](#workflows) · [Preview Releases](#preview-release-workflow) · [Comparison](#how-simple-flow-compares) · [Deployment Strategy](#deployment-strategy) · [Edge Cases](#edge-cases) · [When to Use Something Else](#when-to-use-something-else)
 
 ## Visual Overview
 
@@ -70,10 +70,14 @@ long-lived branches other than `main`.
    git sf feature finish
    ```
 
-5. **Optionally cut a release.** If this feature is worth shipping on its own, tag it.
+5. **Optionally cut a release.** If this feature is worth shipping on its own, tag it. For a full stable release, use
+   `git sf release`. To tag a preview release instead (e.g. for beta testing before the final release), pass `--preview`
+   to `finish`:
 
    ```bash
-   git sf release minor
+   git sf release minor                       # stable release
+   git sf feature finish --preview            # preview release after merging
+   git sf feature finish --preview --scope minor  # explicit bump level
    ```
 
 > [!TIP]
@@ -165,6 +169,44 @@ A release is not a branch. It is a point-in-time snapshot of `main` captured as 
 > There are no release branches. If a release needs a fix after the fact, that is a hotfix — branch from the
 > tag, fix it, and cut a patch release.
 
+### Preview Release Workflow
+
+A preview release is a semver pre-release tag (e.g. `v1.3.0-beta.1`) used to signal that the next version is
+available for early testing without committing to a stable release. Preview tags follow the same versioning rules as
+stable releases — the bump level controls which segment increments — but they include a configurable suffix
+(`beta`, `rc`, `alpha`, etc.).
+
+1. **Tag a preview release directly from main:**
+
+   ```bash
+   git sf release preview                # uses default_prerelease_bump from config
+   git sf release preview --scope patch  # explicit bump level
+   git sf release preview -m "message"   # create an annotated tag
+   ```
+
+2. **Or trigger a preview tag as part of feature finish:**
+
+   ```bash
+   git sf feature finish --preview
+   git sf feature finish --preview --scope minor
+   ```
+
+   This merges the PR and then immediately creates the preview tag on the resulting `main` commit.
+
+3. **Follow up with a stable release** when you are satisfied the preview is good:
+
+   ```bash
+   git sf release minor
+   ```
+
+> [!TIP]
+> Configure the suffix and default bump in `.sfconfig.yml`:
+> ```yaml
+> prerelease_enabled: true
+> prerelease_suffix: rc
+> default_prerelease_bump: minor
+> ```
+
 ## How Simple Flow Compares
 
 |                          | Git Flow                                      | GitHub Flow           | Simple Flow                         |
@@ -174,6 +216,7 @@ A release is not a branch. It is a point-in-time snapshot of `main` captured as 
 | **Feature branches**     | Long-lived                                    | Short-lived           | Flexible                            |
 | **Hotfix path**          | Branch from main tag, merge to main + develop | Just a PR             | Branch from tag, merge to main      |
 | **Built-in versioning**  | No                                            | No                    | Yes (semver tags)                   |
+| **Preview releases**     | Via release branches                          | No                    | Yes (`release preview` / `--preview`) |
 | **Feature flags needed** | Rarely                                        | Often                 | No                                  |
 | **Ceremony**             | High                                          | Low                   | Low                                 |
 | **Best for**             | Scheduled releases, multiple environments     | Continuous deployment | Trunk-based with versioned releases |
@@ -187,6 +230,7 @@ branches or infrastructure:
 |----------------------------------|--------------------------|--------------------------------------|------------------------------------------|
 | Push to a feature/hotfix branch  | **Dev**                  | Work in progress, single feature     | Developer testing, preview environments  |
 | Merge to `main`                  | **Beta / RC**            | All accepted work since the last tag | Integration testing, internal dogfooding |
+| Push a preview tag (`v*.*.*-<suffix>.*`) | **Beta / RC**   | Explicitly tagged preview snapshot   | Early adopters, opt-in beta channel      |
 | Push a semver tag (`v*.*.*`)     | **Production / Stable**  | Explicitly blessed snapshot          | End-user release                         |
 
 ### How it works
@@ -198,9 +242,10 @@ branches or infrastructure:
 **Dev builds** are triggered by any push to a feature or hotfix branch. These are throwaway artifacts for the developer
 or reviewer — deploy to a preview environment, run on a device, share with QA. They carry no version promise.
 
-**Beta builds** are triggered when a PR merges to `main`. At any point, the tip of `main` contains every accepted change
-since the last release. Treat this as a rolling "latest" or "release candidate" channel — suitable for internal
-dogfooding, staging environments, or beta testers who opt in to early builds.
+**Beta builds** are triggered by an explicit preview tag pushed via `git sf release preview` (or `git sf feature finish
+--preview`). Rather than treating every merge to `main` as a beta, Simple Flow lets maintainers deliberately tag a
+preview release — e.g. `v1.3.0-beta.1` — when the work on `main` is considered ready for early testing. This gives
+beta testers a stable, named snapshot rather than an ever-moving tip.
 
 **Production releases** are triggered when a semver tag is pushed. This is the only thing end users see. Because the tag
 points to a specific commit on `main`, you always know exactly what code is in a production build.
@@ -216,7 +261,7 @@ points to a specific commit on `main`, you always know exactly what code is in a
 on:
   push:
     branches: [main, 'feature/**', 'hotfix/**']
-    tags: ['v*.*.*']
+    tags: ['v*.*.*', 'v*.*.*-*']
 
 jobs:
   dev:
@@ -224,11 +269,12 @@ jobs:
     # Build preview artifact, deploy to dev environment ...
 
   beta:
-    if: github.ref == 'refs/heads/main'
-    # Build RC artifact, deploy to staging ...
+    if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '-')
+    # Build preview artifact, deploy to beta/RC channel ...
+    # Triggered by preview tags like v1.3.0-beta.1
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
     # Build production artifact, publish to registry ...
 ```
 
