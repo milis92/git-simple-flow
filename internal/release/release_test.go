@@ -460,6 +460,149 @@ func TestStableReleaseIgnoresPreviewTags(t *testing.T) {
 	}
 }
 
+// TestRecoveryPushesLocalOnlyTagOnRerun verifies that rerunning
+// PreviewReleaseCore after a failed push recovers the existing local tag.
+func TestRecoveryPushesLocalOnlyTagOnRerun(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	// Create a local preview tag but do NOT push it (simulates failed push).
+	runGit(t, repoDir, "tag", "v0.1.1-beta.1")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewReleaseCore("patch", ""); err != nil {
+		t.Fatalf("PreviewReleaseCore() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Found unpushed local tag v0.1.1-beta.1") {
+		t.Fatalf("expected recovery message, got %q", out.String())
+	}
+
+	// Verify the tag was pushed to origin.
+	remoteRefs := runGit(t, repoDir, "ls-remote", "--tags", "origin", "v0.1.1-beta.1")
+	if !strings.Contains(remoteRefs, "v0.1.1-beta.1") {
+		t.Fatalf("expected v0.1.1-beta.1 on remote, got %q", remoteRefs)
+	}
+}
+
+// TestRecoverySkipsStaleCounterBelowRemote verifies that a local-only tag
+// with a counter <= the highest published remote counter is not recovered.
+func TestRecoverySkipsStaleCounterBelowRemote(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	// Push beta.3 to remote (the highest published counter).
+	runGit(t, repoDir, "tag", "v0.1.1-beta.3")
+	runGit(t, repoDir, "push", "origin", "v0.1.1-beta.3")
+
+	// Leave beta.2 as local-only (stale leftover).
+	runGit(t, repoDir, "tag", "v0.1.1-beta.2")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewReleaseCore("patch", ""); err != nil {
+		t.Fatalf("PreviewReleaseCore() error = %v", err)
+	}
+
+	// Should NOT recover beta.2 — it should create beta.4 (next after beta.3).
+	if strings.Contains(out.String(), "Found unpushed local tag") {
+		t.Fatalf("should not recover stale tag, got %q", out.String())
+	}
+	tagOutput := runGit(t, repoDir, "tag", "-l", "v0.1.1-beta.4")
+	if tagOutput != "v0.1.1-beta.4" {
+		t.Fatalf("expected tag v0.1.1-beta.4, got %q", tagOutput)
+	}
+}
+
+// TestRecoveryPicksHighestCounter verifies that when multiple local-only
+// tags exist on HEAD, recovery selects the one with the highest counter.
+func TestRecoveryPicksHighestCounter(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	// Create two local-only preview tags (neither pushed).
+	runGit(t, repoDir, "tag", "v0.1.1-beta.1")
+	runGit(t, repoDir, "tag", "v0.1.1-beta.2")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewReleaseCore("patch", ""); err != nil {
+		t.Fatalf("PreviewReleaseCore() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Found unpushed local tag v0.1.1-beta.2") {
+		t.Fatalf("expected recovery of beta.2 (highest), got %q", out.String())
+	}
+}
+
+// TestRecoveryReAnnotatesWhenMessageProvided verifies that recovery with a
+// non-empty message produces an annotated tag instead of the original lightweight one.
+func TestRecoveryReAnnotatesWhenMessageProvided(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	// Create a lightweight local-only preview tag.
+	runGit(t, repoDir, "tag", "v0.1.1-beta.1")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewReleaseCore("patch", "Recovery message"); err != nil {
+		t.Fatalf("PreviewReleaseCore() error = %v", err)
+	}
+
+	// Should be annotated now.
+	objType := runGit(t, repoDir, "cat-file", "-t", "v0.1.1-beta.1")
+	if objType != "tag" {
+		t.Fatalf("expected annotated tag after recovery, got object type %q", objType)
+	}
+
+	tagMsg := runGit(t, repoDir, "tag", "-l", "--format=%(contents:subject)", "v0.1.1-beta.1")
+	if tagMsg != "Recovery message" {
+		t.Fatalf("expected tag message %q, got %q", "Recovery message", tagMsg)
+	}
+}
+
 func previewConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.PrereleaseSuffix = "beta"

@@ -115,6 +115,14 @@ func (g *Git) DeleteLocalTag(name string) error {
 	return err
 }
 
+// ReplaceTagAnnotated atomically replaces an existing tag with an annotated
+// tag bearing the given message. If the command fails the original tag is
+// preserved because git applies -f only on success.
+func (g *Git) ReplaceTagAnnotated(name, message string) error {
+	_, err := g.run("tag", "-a", "-f", name, "-m", message)
+	return err
+}
+
 // PushTag pushes a single tag to origin.
 func (g *Git) PushTag(name string) error {
 	_, err := g.run("push", "origin", name)

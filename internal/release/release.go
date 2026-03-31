@@ -354,7 +354,7 @@ func (s *Service) PreviewReleaseCore(scope, message string) error {
 // findRecoverablePreviewTag returns the highest-counter local-only preview tag
 // on HEAD for the given target version, or "" if no recovery is needed.
 // A candidate is only recoverable if its counter exceeds every already-published
-// preview for the same target, ensuring monotonicity.
+// (remote) preview for the same target, ensuring monotonicity.
 func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (string, error) {
 	pattern := fmt.Sprintf("%s%s-%s.*", prefix, target.String(), suffix)
 	localTags, err := qGit.ListTags(pattern)
@@ -369,13 +369,23 @@ func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target vers
 
 	var best string
 	bestCounter := 0
+	highestPublished := 0
 
 	for _, tag := range localTags {
 		onRemote, err := qGit.TagExistsOnRemote(tag)
 		if err != nil {
 			return "", err
 		}
+
+		v, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
+		if parseErr != nil {
+			continue
+		}
+
 		if onRemote {
+			if v.PreBuild > highestPublished {
+				highestPublished = v.PreBuild
+			}
 			continue
 		}
 
@@ -387,10 +397,6 @@ func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target vers
 			continue
 		}
 
-		v, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
-		if parseErr != nil {
-			continue
-		}
 		if v.PreBuild > bestCounter {
 			best = tag
 			bestCounter = v.PreBuild
@@ -401,14 +407,9 @@ func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target vers
 		return "", nil
 	}
 
-	// Ensure the candidate's counter exceeds any already-published preview.
-	// LatestPreviewTag includes both local and remote tags merged into HEAD.
-	latestPreview, err := qGit.LatestPreviewTag(prefix, suffix, "HEAD", target)
-	if err == nil && latestPreview != "" {
-		v, parseErr := version.Parse(strings.TrimPrefix(latestPreview, prefix))
-		if parseErr == nil && bestCounter <= v.PreBuild {
-			return "", nil // stale: a higher or equal counter already exists
-		}
+	// Only recover if the candidate exceeds all published counters.
+	if bestCounter <= highestPublished {
+		return "", nil
 	}
 
 	return best, nil
@@ -429,12 +430,11 @@ func (s *Service) recoverLocalPreviewTag(qGit *git.Git, prefix, suffix string, t
 		return false, nil
 	}
 
-	// If the caller supplied a message, recreate the tag as annotated.
+	// If the caller supplied a message, atomically replace the tag with
+	// an annotated version. Using -f ensures the original is preserved if
+	// the command fails (e.g. gpg signing unavailable).
 	if message != "" {
-		if err := s.Git.DeleteLocalTag(tag); err != nil {
-			return false, fmt.Errorf("could not remove local tag %s for re-annotation: %w", tag, err)
-		}
-		if err := s.Git.TagAnnotated(tag, message); err != nil {
+		if err := s.Git.ReplaceTagAnnotated(tag, message); err != nil {
 			return false, err
 		}
 	}
