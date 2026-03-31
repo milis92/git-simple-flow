@@ -248,6 +248,18 @@ func (g *Git) ListTags(pattern string) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+// ListTagsMerged returns tags matching the pattern that are reachable from ref.
+func (g *Git) ListTagsMerged(pattern, ref string) ([]string, error) {
+	out, err := g.run("tag", "-l", pattern, "--merged", ref)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
 // TagExistsOnRemote checks whether a tag has been pushed to origin.
 // Returns false for local-only tags that were never published.
 func (g *Git) TagExistsOnRemote(tag string) (bool, error) {

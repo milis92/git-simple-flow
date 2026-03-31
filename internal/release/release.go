@@ -354,10 +354,11 @@ func (s *Service) PreviewReleaseCore(scope, message string) error {
 // findRecoverablePreviewTag returns the highest-counter local-only preview tag
 // on HEAD for the given target version, or "" if no recovery is needed.
 // A candidate is only recoverable if its counter exceeds every already-published
-// (remote) preview for the same target, ensuring monotonicity.
+// (remote) preview reachable from HEAD, ensuring monotonicity. Using --merged HEAD
+// matches the scope of LatestPreviewTag so off-branch remote tags are ignored.
 func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target version.Version) (string, error) {
 	pattern := fmt.Sprintf("%s%s-%s.*", prefix, target.String(), suffix)
-	localTags, err := qGit.ListTags(pattern)
+	tags, err := qGit.ListTagsMerged(pattern, "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -371,15 +372,15 @@ func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target vers
 	bestCounter := 0
 	highestPublished := 0
 
-	for _, tag := range localTags {
-		onRemote, err := qGit.TagExistsOnRemote(tag)
-		if err != nil {
-			return "", err
-		}
-
+	for _, tag := range tags {
 		v, parseErr := version.Parse(strings.TrimPrefix(tag, prefix))
 		if parseErr != nil {
 			continue
+		}
+
+		onRemote, err := qGit.TagExistsOnRemote(tag)
+		if err != nil {
+			return "", err
 		}
 
 		if onRemote {
@@ -407,7 +408,8 @@ func findRecoverablePreviewTag(qGit *git.Git, prefix, suffix string, target vers
 		return "", nil
 	}
 
-	// Only recover if the candidate exceeds all published counters.
+	// Only recover if the candidate exceeds all published counters
+	// reachable from HEAD.
 	if bestCounter <= highestPublished {
 		return "", nil
 	}

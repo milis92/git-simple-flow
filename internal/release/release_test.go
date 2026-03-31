@@ -603,6 +603,50 @@ func TestRecoveryReAnnotatesWhenMessageProvided(t *testing.T) {
 	}
 }
 
+// TestRecoveryIgnoresOffBranchRemoteTag verifies that an off-branch remote
+// preview tag with a higher counter does not suppress recovery of a valid
+// local-only tag on HEAD.
+func TestRecoveryIgnoresOffBranchRemoteTag(t *testing.T) {
+	repoDir := initReleaseRepo(t)
+
+	// Create beta.5 on a side branch and push it to remote.
+	runGit(t, repoDir, "checkout", "-b", "side")
+	if err := os.WriteFile(filepath.Join(repoDir, "side.txt"), []byte("side\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "side commit")
+	runGit(t, repoDir, "tag", "v0.1.1-beta.5")
+	runGit(t, repoDir, "push", "origin", "v0.1.1-beta.5")
+
+	// Switch back to main and create a local-only beta.4.
+	runGit(t, repoDir, "checkout", "main")
+	runGit(t, repoDir, "tag", "v0.1.1-beta.4")
+
+	var out bytes.Buffer
+	r := runner.NewRunner(false, false)
+	u := ui.New()
+	u.Out = &out
+	u.AutoConfirm = true
+
+	svc := &Service{
+		Git:              git.New(r, repoDir),
+		UI:               u,
+		Config:           previewConfig(),
+		RunMessagePrompt: ui.RunMessagePrompt,
+	}
+
+	if err := svc.PreviewReleaseCore("patch", ""); err != nil {
+		t.Fatalf("PreviewReleaseCore() error = %v", err)
+	}
+
+	// beta.4 should be recovered — the off-branch beta.5 is not reachable
+	// from main and should not suppress recovery.
+	if !strings.Contains(out.String(), "Found unpushed local tag v0.1.1-beta.4") {
+		t.Fatalf("expected recovery of beta.4, got %q", out.String())
+	}
+}
+
 func previewConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.PrereleaseSuffix = "beta"
