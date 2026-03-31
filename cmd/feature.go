@@ -9,6 +9,7 @@ import (
 	"github.com/milis92/git-simple-flow/internal/release"
 	"github.com/milis92/git-simple-flow/internal/runner"
 	"github.com/milis92/git-simple-flow/internal/ui"
+	"github.com/milis92/git-simple-flow/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -88,6 +89,10 @@ var featureFinishCmd = &cobra.Command{
 
 		force, _ := cmd.Flags().GetBool("force")
 		scope, _ := cmd.Flags().GetString("scope")
+
+		if scope != "" && !version.ValidScope(scope) {
+			return fmt.Errorf("invalid scope: %q (must be major, minor, or patch)", scope)
+		}
 
 		var preview *bool
 		if cmd.Flags().Changed("preview") {

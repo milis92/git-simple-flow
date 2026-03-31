@@ -64,7 +64,9 @@ func isValidReleaseBump(value string) bool {
 	}
 }
 
-func isValidPrereleaseSuffix(value string) bool {
+// IsValidPrereleaseSuffix reports whether value is a valid prerelease suffix
+// (non-empty, lowercase alphanumeric only).
+func IsValidPrereleaseSuffix(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -101,7 +103,7 @@ func (c Config) Validate() error {
 	if !isValidReleaseBump(c.DefaultPrereleaseBump) {
 		return fmt.Errorf("invalid default_prerelease_bump %q: must be minor, patch, or major", c.DefaultPrereleaseBump)
 	}
-	if !isValidPrereleaseSuffix(c.PrereleaseSuffix) {
+	if !IsValidPrereleaseSuffix(c.PrereleaseSuffix) {
 		return fmt.Errorf("invalid prerelease_suffix %q: must be non-empty lowercase alphanumeric", c.PrereleaseSuffix)
 	}
 	return nil
@@ -187,7 +189,7 @@ func SanitizePartial(cfg *PartialConfig) (*PartialConfig, []error) {
 		sanitized.DefaultPrereleaseBump = ""
 	}
 
-	if sanitized.PrereleaseSuffix != "" && !isValidPrereleaseSuffix(sanitized.PrereleaseSuffix) {
+	if sanitized.PrereleaseSuffix != "" && !IsValidPrereleaseSuffix(sanitized.PrereleaseSuffix) {
 		warnings = append(warnings, fmt.Errorf(
 			"invalid prerelease_suffix %q: must be non-empty lowercase alphanumeric",
 			sanitized.PrereleaseSuffix,

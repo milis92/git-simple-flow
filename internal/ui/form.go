@@ -159,7 +159,15 @@ func RunInitForm(defaults InitFormResult, branches []string) (InitFormResult, er
 				Title("Prerelease suffix").
 				Description("e.g. beta, rc, alpha").
 				Value(&result.PrereleaseSuffix).
-				Validate(validateNonEmpty("prerelease suffix")),
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("prerelease suffix cannot be empty")
+					}
+					if !config.IsValidPrereleaseSuffix(s) {
+						return fmt.Errorf("prerelease suffix must be lowercase alphanumeric (e.g. beta, rc, alpha)")
+					}
+					return nil
+				}),
 		).Title("Preview Releases").Description("5/5"),
 	).WithTheme(theme.HuhTheme())
 

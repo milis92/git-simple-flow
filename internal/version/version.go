@@ -85,6 +85,16 @@ func (v Version) IsPrerelease() bool {
 	return v.Prerelease != ""
 }
 
+// ValidScope reports whether scope is a recognized bump level.
+func ValidScope(scope string) bool {
+	switch scope {
+	case "major", "minor", "patch":
+		return true
+	default:
+		return false
+	}
+}
+
 // Bump returns a new Version with the given scope incremented.
 // Valid scopes are "major", "minor", and "patch". Higher components
 // reset lower ones to zero (e.g. bumping minor resets patch).
