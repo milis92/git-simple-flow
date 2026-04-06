@@ -34,12 +34,12 @@ jobs:
           version: "~> v2"
           args: release --snapshot --clean
       - name: Upload Go binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: git-sf_linux_amd64
           path: dist/git-sf_linux_amd64_*/git-sf
       - name: Upload deb package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: git-sf.deb
           path: dist/*.deb
